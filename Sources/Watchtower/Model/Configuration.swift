@@ -1,9 +1,20 @@
 import Foundation
 
-/// What Watchtower watches. Defaults describe ryangrey.dev; all of it is overridable from
-/// UserDefaults so the repo can be public without being account-specific in a harmful way.
-/// None of these are secrets — they are resource identifiers, and every one is useless
-/// without credentials.
+/// What Watchtower watches.
+///
+/// The defaults below are deliberately placeholders. Account IDs, distribution IDs and IAM
+/// user names are not secrets, but publishing them lets a stranger construct valid ARNs for
+/// your account, which is where targeted enumeration and credible phishing start. Real values
+/// live in `defaults`, outside this repo:
+///
+/// ```sh
+/// defaults write dev.ryangrey.watchtower accountId      -string "123456789012"
+/// defaults write dev.ryangrey.watchtower distributionId -string "EXXXXXXXXXXXXX"
+/// defaults write dev.ryangrey.watchtower alarmName      -string "cloudfront-5xx-error-rate"
+/// defaults write dev.ryangrey.watchtower budgetName     -string "my-monthly-budget"
+/// defaults write dev.ryangrey.watchtower profileName    -string "watchtower"
+/// defaults write dev.ryangrey.watchtower region         -string "us-east-1"
+/// ```
 struct Configuration {
     var accountId: String
     var distributionId: String
@@ -12,14 +23,28 @@ struct Configuration {
     var profileName: String
     var region: String
 
+    static let placeholderAccountId = "000000000000"
+    static let placeholderDistributionId = "EXAMPLEDISTID0"
+
     static let defaults = Configuration(
-        accountId: "<ACCOUNT_ID>",
-        distributionId: "EXAMPLEDISTID0",
+        accountId: placeholderAccountId,
+        distributionId: placeholderDistributionId,
         alarmName: "cloudfront-5xx-error-rate",
         budgetName: "monthly-budget",
         profileName: "watchtower",
         region: "us-east-1"
     )
+
+    /// False until the placeholders are replaced. Surfaced in the panel and the self-test so
+    /// an unconfigured app says so plainly instead of failing with a confusing AWS error.
+    var isConfigured: Bool {
+        accountId != Configuration.placeholderAccountId
+            && distributionId != Configuration.placeholderDistributionId
+            && !accountId.isEmpty && !distributionId.isEmpty
+    }
+
+    static let notConfiguredMessage =
+        "Not configured — set accountId and distributionId (see README)"
 
     static func load() -> Configuration {
         let d = UserDefaults.standard

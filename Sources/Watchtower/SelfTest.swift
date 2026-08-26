@@ -30,6 +30,11 @@ enum SelfTest {
         print("  budget         \(config.budgetName)")
         print("")
 
+        guard config.isConfigured else {
+            print("[FAIL] configuration  \(Configuration.notConfiguredMessage)")
+            return 1
+        }
+
         let meter = CallMeter(directory: DiskCache.directory)
         await meter.reset()
         let credentials = CredentialProvider()
