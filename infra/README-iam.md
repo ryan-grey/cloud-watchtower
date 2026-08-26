@@ -1,7 +1,14 @@
 # IAM for Watchtower
 
-> Replace `<ACCOUNT_ID>` with your 12-digit AWS account ID and `<DEPLOY_USER>` with the IAM
-> user that currently deploys your site, in all three files here, before running anything.
+> Replace, in all three files here, before running anything:
+> `<ACCOUNT_ID>` — your 12-digit AWS account ID
+> `<DEPLOY_USER>` — the IAM user that currently deploys your site
+> `<BUDGET_NAME>` — your budget's exact name, the same string you set as `budgetName`
+>
+> `<BUDGET_NAME>` is the one that bites. It is the only placeholder inside a resource ARN, so
+> getting it wrong still creates a valid role: every other call succeeds and only the budget
+> read returns AccessDenied. Run `--selftest` after creating the role; it asserts the budget
+> read specifically and names this statement when it denies.
 
 Watchtower should NOT run as `<DEPLOY_USER>`. Create a role it can assume instead.
 
