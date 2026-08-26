@@ -74,6 +74,9 @@ final class AppState: ObservableObject {
         self.costExplorer = CostExplorerService(client: client, config: configuration)
 
         restoreFromDisk()
+        if !configuration.isConfigured {
+            credentialError = Configuration.notConfiguredMessage
+        }
         observeSleepWake()
         startPolling()
         startTicking()

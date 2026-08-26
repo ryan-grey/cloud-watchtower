@@ -17,8 +17,25 @@ the alarm is firing or spend is over 80% of budget, `cloud.slash` when the app c
 
 ```sh
 scripts/make-app.sh                 # builds and assembles dist/Watchtower.app
+```
+
+Point it at your account. These are **not** committed — the repo ships placeholders, because
+an account ID plus an IAM user name is enough for a stranger to construct valid ARNs for your
+account:
+
+```sh
+defaults write dev.ryangrey.watchtower accountId      -string "123456789012"
+defaults write dev.ryangrey.watchtower distributionId -string "EXXXXXXXXXXXXX"
+defaults write dev.ryangrey.watchtower alarmName      -string "cloudfront-5xx-error-rate"
+defaults write dev.ryangrey.watchtower budgetName     -string "my-monthly-budget"
+defaults write dev.ryangrey.watchtower profileName    -string "watchtower"
+defaults write dev.ryangrey.watchtower region         -string "us-east-1"
+
 open dist/Watchtower.app
 ```
+
+Until `accountId` and `distributionId` are set, the app says so rather than failing with a
+confusing AWS error.
 
 Verify the AWS path from a terminal without touching the UI:
 
@@ -152,12 +169,12 @@ uses is strictly safer than duplicating it.
 This is a local, ad-hoc-signed build (`codesign -s -`). Not notarized, not distributable, not
 intended to be.
 
-### Credentials: a read-only role, not `<DEPLOY_USER>`
+### Credentials: a read-only role, not your deploy user
 
 Watchtower defaults to a `watchtower` profile, not `default`. Setup is in
 [`infra/README-iam.md`](infra/README-iam.md).
 
-`<DEPLOY_USER>` is a deploy credential: it can `s3 sync` (which deletes objects), invalidate
+The deploy credential is powerful: it can `s3 sync` (which deletes objects), invalidate
 CloudFront, and update Lambda code. A menu-bar app is the longest-lived process on the
 machine that would ever hold it — auto-starting at login and running unattended for weeks. The
 compromise scenario shifts from "read three dashboards" to "delete the site", for zero
@@ -250,7 +267,7 @@ Verified by direct observation:
 ![Panel with the alarm firing](docs/panel-alarm.png)
 
   The alarm's real actions fired too, and all four notifications were confirmed delivered to
-  `the alert address` from `alerts@ryangrey.dev` with timestamps matching the table above
+  the alert address from `alerts@ryangrey.dev` with timestamps matching the table above
   — so SNS → Lambda → SES → inbox is verified working end to end, not assumed. (One caveat
   found while checking: a Gmail filter files them under `2026/School/AWS`, archived and
   marked read, so they never reach the inbox. Delivery works; the last hop to a human does

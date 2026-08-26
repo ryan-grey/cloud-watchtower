@@ -1,5 +1,8 @@
 # IAM for Watchtower
 
+> Replace `<ACCOUNT_ID>` with your 12-digit AWS account ID and `<DEPLOY_USER>` with the IAM
+> user that currently deploys your site, in all three files here, before running anything.
+
 Watchtower should NOT run as `<DEPLOY_USER>`. Create a role it can assume instead.
 
 ## Why a role and not a second IAM user
