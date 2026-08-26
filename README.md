@@ -245,6 +245,15 @@ Verified by direct observation:
   Budgets keeps working; both broken cards name the error and state their last-good age, and
   the credential line reads "Not resolved". Screenshot above.
 - **Light and dark.** Both rendered from live data, `docs/panel.png`.
+- **Running as the read-only role, proven not assumed.** `--selftest` calls
+  `sts:GetCallerIdentity` and prints the identity AWS itself resolved:
+  `arn:aws:sts::…:assumed-role/watchtower-readonly/watchtower`. Every call after that line
+  runs as the role. The one exception is inherent: `sts:AssumeRole` is signed with the
+  source profile's static keys, because that is the call that obtains the role.
+- **The wrong-budget-ARN failure mode.** Reproduced deliberately by pointing the app at a
+  budget outside the policy's scope: `DescribeBudget` denies while alarm and metrics stay
+  green, and the self-test names the statement and the exact ARN suffix to fix. This is the
+  failure worth engineering for — it degrades one tile, not the app.
 - **Menu-bar glyph, warning state.** Observed in the menu bar as the warning triangle, which
   is correct: spend is at 340% of budget.
 - **No Dock icon.** `LSUIElement` confirmed — the process runs with no visible window.

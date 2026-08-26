@@ -20,7 +20,8 @@ struct WatchtowerApp: App {
         if arguments.contains("--selftest") {
             let profile = arguments.firstIndex(of: "--profile")
                 .flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
-            SelfTest.runAndExit(profileOverride: profile)
+            SelfTest.runAndExit(profileOverride: profile,
+                                includeCost: arguments.contains("--cost"))
         }
 
         // `--preview` renders the panel in an ordinary window, side by side in light and

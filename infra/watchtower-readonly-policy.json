@@ -17,7 +17,7 @@
       "Sid": "BudgetReadOnly",
       "Effect": "Allow",
       "Action": ["budgets:ViewBudget", "budgets:DescribeBudget"],
-      "Resource": "arn:aws:budgets::<ACCOUNT_ID>:budget/monthly-budget"
+      "Resource": "arn:aws:budgets::<ACCOUNT_ID>:budget/<BUDGET_NAME>"
     },
     {
       "Sid": "CostExplorerReadOnlyManualOnly",
