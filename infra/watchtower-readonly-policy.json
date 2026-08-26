@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AlarmStateReadOnly",
+      "Effect": "Allow",
+      "Action": ["cloudwatch:DescribeAlarms"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "MetricsReadOnly",
+      "Effect": "Allow",
+      "Action": ["cloudwatch:GetMetricData"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BudgetReadOnly",
+      "Effect": "Allow",
+      "Action": ["budgets:ViewBudget", "budgets:DescribeBudget"],
+      "Resource": "arn:aws:budgets::<ACCOUNT_ID>:budget/monthly-budget"
+    },
+    {
+      "Sid": "CostExplorerReadOnlyManualOnly",
+      "Effect": "Allow",
+      "Action": ["ce:GetCostAndUsage"],
+      "Resource": "*"
+    }
+  ]
+}
