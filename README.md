@@ -43,6 +43,9 @@ Verify the AWS path from a terminal without touching the UI:
 dist/Watchtower.app/Contents/MacOS/Watchtower --selftest --profile default
 ```
 
+`--render` writes at 2x by default (`--scale 1` for 1x); `scripts/optimise-png.py` converts the
+result to an indexed PNG, which is how the screenshot on ryangrey.dev got from 193 KB to 77 KB.
+
 Other entry points: `--preview` (panel in a normal window, light and dark side by side) and
 `--render <path.png>` (draw the panel straight to a PNG, no screen involved).
 
