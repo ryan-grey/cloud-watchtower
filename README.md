@@ -231,12 +231,35 @@ Verified by direct observation:
 - **Menu-bar glyph, warning state.** Observed in the menu bar as the warning triangle, which
   is correct: spend is at 340% of budget.
 - **No Dock icon.** `LSUIElement` confirmed — the process runs with no visible window.
+- **Live alarm transitions, both directions.** `SetAlarmState` was used to force the real
+  alarm, firing its real actions (SNS → Lambda → SES). Timestamps below are the running
+  menu-bar app's own 60-second polls, read from the state it persisted — not inferred from
+  the API call returning.
+
+| | AWS state change | app observed | lag |
+|---|---|---|---|
+| cycle 1 → ALARM | 11:12:49Z | **11:13:09Z** | 20 s |
+| cycle 1 → OK (self-recovered) | 11:13:15Z | **11:14:11Z** | 56 s |
+| cycle 2 → ALARM | 11:17:29Z | **11:18:19Z** | 50 s |
+| cycle 2 → OK (self-recovered) | 11:18:48Z | **11:19:20Z** | 32 s |
+
+  All four lags are within one poll interval. **The indicator does not latch** — it returned
+  to OK on its own both times, with no intervention. Poll cadence held steady at 61–64 s
+  (60 s interval plus request latency) with no drift and no backoff.
+
+![Panel with the alarm firing](docs/panel-alarm.png)
+
+  Note what the header does: it composes both live conditions into
+  "Alarm firing · Spend at 340% of budget" rather than letting one mask the other.
+
+  **Caveat on the glyph itself.** The menu-bar icon did not change during this test, and that
+  is correct rather than a miss: spend is independently at 340% of budget, so the glyph was
+  already the warning triangle before the alarm fired and stayed one after it cleared. A
+  warning→normal icon transition is not observable while the budget condition holds. What was
+  observed is the alarm data and the composed summary changing in both directions.
 
 Not yet verified — see Known gaps:
 
-- **The `ALARM` glyph transition.** `<DEPLOY_USER>` lacks `cloudwatch:SetAlarmState`
-  (`AccessDenied`, confirmed), so the alarm could not be forced from here. The OK and unknown
-  glyph states were observed; the ALARM state is inferred from the same code path.
 - **24-hour measured cost.** The app has not yet run for 24 hours. The in-app meter
   (`callmeter.json`, shown in the panel footer) counts every call and multiplies by published
   unit price; over the first 25 minutes it recorded `$0.0004`, but that figure is inflated by
