@@ -249,6 +249,13 @@ Verified by direct observation:
 
 ![Panel with the alarm firing](docs/panel-alarm.png)
 
+  The alarm's real actions fired too, and all four notifications were confirmed delivered to
+  `the alert address` from `alerts@ryangrey.dev` with timestamps matching the table above
+  — so SNS → Lambda → SES → inbox is verified working end to end, not assumed. (One caveat
+  found while checking: a Gmail filter files them under `2026/School/AWS`, archived and
+  marked read, so they never reach the inbox. Delivery works; the last hop to a human does
+  not.)
+
   Note what the header does: it composes both live conditions into
   "Alarm firing · Spend at 340% of budget" rather than letting one mask the other.
 
