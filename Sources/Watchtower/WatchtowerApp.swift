@@ -36,8 +36,10 @@ struct WatchtowerApp: App {
            arguments.indices.contains(index + 1) {
             let path = arguments[index + 1]
             NSApplication.shared.setActivationPolicy(.accessory)
+            let scale = arguments.firstIndex(of: "--scale")
+                .flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil } ?? 2
             DispatchQueue.main.asyncAfter(deadline: .now() + 9) {
-                PreviewWindow.render(to: path)
+                PreviewWindow.render(to: path, scale: scale)
             }
         }
 
@@ -65,7 +67,7 @@ enum PreviewWindow {
     private static var window: NSWindow?
 
     /// Draw both panes to a PNG offscreen, then exit.
-    static func render(to path: String) {
+    static func render(to path: String, scale: Int = 2) {
         let (container, size) = build()
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.borderless], backing: .buffered, defer: false)
@@ -74,10 +76,18 @@ enum PreviewWindow {
         container.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
 
-        guard let rep = container.bitmapImageRepForCachingDisplay(in: container.bounds) else {
+        // Render at 2x by giving the bitmap a backing store twice the logical size. Setting
+        // rep.size to the point size while pixelsWide/High are doubled is what tells AppKit
+        // this is a 2x backing store, so text is drawn crisp rather than upscaled after.
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(size.width) * scale, pixelsHigh: Int(size.height) * scale,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
             FileHandle.standardError.write(Data("render: could not create bitmap\n".utf8))
             exit(1)
         }
+        rep.size = size
         container.cacheDisplay(in: container.bounds, to: rep)
         guard let png = rep.representation(using: .png, properties: [:]) else {
             FileHandle.standardError.write(Data("render: could not encode PNG\n".utf8))
@@ -85,7 +95,7 @@ enum PreviewWindow {
         }
         do {
             try png.write(to: URL(fileURLWithPath: path))
-            FileHandle.standardError.write(Data("rendered \(Int(size.width))x\(Int(size.height)) to \(path)\n".utf8))
+            FileHandle.standardError.write(Data("rendered \(Int(size.width) * scale)x\(Int(size.height) * scale) (\(scale)x) to \(path)\n".utf8))
             exit(0)
         } catch {
             FileHandle.standardError.write(Data("render: \(error)\n".utf8))
