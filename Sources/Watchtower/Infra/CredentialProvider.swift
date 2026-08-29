@@ -41,8 +41,14 @@ actor CredentialProvider {
     }
 
     private let home = FileManager.default.homeDirectoryForCurrentUser
-    private var cached: SigV4.Credentials?
-    private(set) var resolution: Resolution?
+    /// Keyed by profile. Pro can watch two accounts at once, and a single cached credential
+    /// would hand the second account's calls the first account's keys — which fails as an
+    /// opaque AccessDenied rather than as anything a user could diagnose.
+    private var cached: [String: SigV4.Credentials] = [:]
+    private var resolutions: [String: Resolution] = [:]
+    private(set) var lastResolution: Resolution?
+
+    func resolution(for profile: String) -> Resolution? { resolutions[profile] }
 
     private var configURL: URL { home.appendingPathComponent(".aws/config") }
     private var credentialsURL: URL { home.appendingPathComponent(".aws/credentials") }
@@ -59,11 +65,11 @@ actor CredentialProvider {
         (try? INIFile(contentsOf: configURL))?.profile(profileName)?["region"] ?? "us-east-1"
     }
 
-    func invalidate() { cached = nil }
+    func invalidate() { cached.removeAll() }
 
     /// Returns valid credentials, assuming a role if the profile is configured for one.
     func credentials(profile profileName: String) async throws -> SigV4.Credentials {
-        if let cached, !cached.isExpired { return cached }
+        if let hit = cached[profileName], !hit.isExpired { return hit }
 
         guard FileManager.default.fileExists(atPath: credentialsURL.path)
                 || FileManager.default.fileExists(atPath: configURL.path) else {
@@ -92,14 +98,18 @@ actor CredentialProvider {
                                                sessionName: settings["role_session_name"] ?? "watchtower",
                                                base: base,
                                                region: regionName)
-            cached = assumed
-            resolution = Resolution(profile: profileName, region: regionName, roleArn: roleArn)
+            cached[profileName] = assumed
+            let resolved = Resolution(profile: profileName, region: regionName, roleArn: roleArn)
+            resolutions[profileName] = resolved
+            lastResolution = resolved
             return assumed
         }
 
         let creds = try staticCredentials(from: settings, profileName: profileName)
-        cached = creds
-        resolution = Resolution(profile: profileName, region: regionName, roleArn: nil)
+        cached[profileName] = creds
+        let resolved = Resolution(profile: profileName, region: regionName, roleArn: nil)
+        resolutions[profileName] = resolved
+        lastResolution = resolved
         return creds
     }
 

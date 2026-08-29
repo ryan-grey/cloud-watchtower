@@ -7,22 +7,57 @@ struct PanelView: View {
     /// not `@State`.
     private var tick: Date { state.now }
 
+    /// Cards keep their configured order inside a section, and sections keep a fixed order,
+    /// so adding a target never reshuffles the panel under the user.
+    private var sections: [(title: String, cards: [TargetCard])] {
+        var order: [String] = []
+        var byTitle: [String: [TargetCard]] = [:]
+        for card in state.cards {
+            let title = card.target.sectionTitle
+            if byTitle[title] == nil { order.append(title) }
+            byTitle[title, default: []].append(card)
+        }
+        let rank = ["Alarm": 0, "Budget": 1]
+        return order
+            .sorted { (rank[$0] ?? 2, $0) < (rank[$1] ?? 2, $1) }
+            .map { ($0, byTitle[$0] ?? []) }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             header
             Divider()
-            alarmSection
-            Divider()
-            cloudFrontSection
-            Divider()
-            budgetSection
-            Divider()
+
+            if state.cards.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(sections, id: \.title) { section in
+                            VStack(alignment: .leading, spacing: 10) {
+                                SectionHeader(title: section.title,
+                                              trailing: section.cards.count > 1
+                                                ? "\(section.cards.count)" : nil)
+                                ForEach(section.cards) { card in
+                                    CardView(card: card, now: tick)
+                                }
+                            }
+                            Divider()
+                        }
+                    }
+                    .padding(.trailing, 2)
+                }
+                // Enough for roughly four cards; beyond that the panel scrolls rather than
+                // growing past the screen. The menu-bar popover has no scroll of its own.
+                .frame(maxHeight: 420)
+            }
+
             costSection
             Divider()
             footer
         }
         .padding(14)
-        .frame(width: 330)
+        .frame(width: 340)
         .onAppear { state.panelOpened() }
     }
 
@@ -34,7 +69,7 @@ struct PanelView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(state.health.tint)
             VStack(alignment: .leading, spacing: 1) {
-                Text("ryangrey.dev")
+                Text("Watchtower")
                     .font(.system(size: 13, weight: .semibold))
                 Text(state.health.summary)
                     .font(.system(size: 11))
@@ -43,95 +78,32 @@ struct PanelView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Button {
-                state.refreshAllNow()
-            } label: {
+            Button { state.refreshAllNow() } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
             .help("Refresh now")
-        }
-    }
-
-    // MARK: Alarm
-
-    private var alarmSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "Alarm", trailing: Fmt.relative(state.alarm.lastSuccess, asOf: tick))
-            if let value = state.alarm.value {
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(alarmColor(value.state))
-                        .frame(width: 8, height: 8)
-                    Text(value.state)
-                        .font(.system(size: 12, weight: .medium))
-                    Spacer()
-                    if let updated = value.stateUpdated {
-                        Text("since \(Fmt.relative(updated, asOf: tick))")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Text(value.name)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+            Button { SettingsWindow.show(state: state) } label: {
+                Image(systemName: "gearshape")
             }
-            if state.alarm.isFailing, let message = state.alarm.errorText {
-                FailureNote(message: message, lastSuccess: state.alarm.lastSuccess)
-            } else if state.alarm.value == nil {
-                Text("Waiting for first refresh…")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-            }
+            .buttonStyle(.borderless)
+            .help("Settings")
         }
     }
 
-    private func alarmColor(_ state: String) -> Color {
-        switch state {
-        case "OK": return .green
-        case "ALARM": return .red
-        default: return .orange
-        }
-    }
-
-    // MARK: CloudFront
-
-    private var cloudFrontSection: some View {
+    private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(title: "CloudFront",
-                          trailing: Fmt.relative(state.metrics.lastSuccess, asOf: tick))
-            if let value = state.metrics.value {
-                MetricGrid(snapshot: value)
-            }
-            if state.metrics.isFailing, let message = state.metrics.errorText {
-                FailureNote(message: message, lastSuccess: state.metrics.lastSuccess)
-            } else if state.metrics.value == nil {
-                Text("Waiting for first refresh…")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-            }
+            Text("Nothing is being watched yet.")
+                .font(.system(size: 12, weight: .medium))
+            Text("Add an alarm, a budget or a metric card in Settings. "
+                 + "The panel shows what each one costs before you commit to it.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open Settings…") { SettingsWindow.show(state: state) }
+                .font(.system(size: 11))
         }
-    }
-
-    // MARK: Budget
-
-    private var budgetSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "Month to date",
-                          trailing: Fmt.relative(state.budget.lastSuccess, asOf: tick))
-            if let value = state.budget.value {
-                BudgetBar(snapshot: value)
-                if let updated = value.lastUpdated {
-                    Text("AWS recalculated \(Fmt.relative(updated, asOf: tick))")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            if state.budget.isFailing, let message = state.budget.errorText {
-                FailureNote(message: message, lastSuccess: state.budget.lastSuccess)
-            } else if state.budget.value == nil {
-                Text("Waiting for first refresh…")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-        }
+        .padding(.vertical, 4)
     }
 
     // MARK: Cost Explorer (manual, billed)
@@ -216,7 +188,7 @@ struct PanelView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
-                Text("\(state.config.region)")
+                Text(state.config.defaultRegion)
                     .font(.system(size: 10)).foregroundStyle(.tertiary)
             }
             if let credentialError = state.credentialError {
@@ -233,6 +205,13 @@ struct PanelView: View {
                 Spacer()
                 Text(Fmt.money(state.measuredSpend, places: 4))
                     .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
+            }
+            HStack {
+                Text("Projected")
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                Spacer()
+                Text("\(Fmt.money(state.projection.monthlyMetricCost, places: 2))/mo · \(state.projection.uniqueMetrics) metrics")
+                    .font(.system(size: 10)).monospacedDigit().foregroundStyle(.tertiary)
             }
             if let since = state.meterSince {
                 Text("since \(Fmt.relative(since, asOf: tick)) · "
@@ -265,6 +244,83 @@ struct PanelView: View {
                     .buttonStyle(.borderless)
                     .font(.system(size: 11))
             }
+        }
+    }
+}
+
+/// One watch target, rendered according to what it holds.
+///
+/// Every branch keeps the same contract the single-target panel had: a value is shown with
+/// its age, a failure is named alongside the age of the last good value, and a card that has
+/// never loaded says so rather than showing zeros.
+struct CardView: View {
+    let card: TargetCard
+    let now: Date
+
+    private var state: Loaded<CardPayload> { card.state }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(card.target.displayName)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Spacer()
+                Text(Fmt.relative(state.lastSuccess, asOf: now))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
+
+            if let payload = state.value {
+                switch payload {
+                case .alarm(let alarm):   alarmBody(alarm)
+                case .budget(let budget): BudgetBar(snapshot: budget)
+                case .metrics(let snapshot):
+                    if let group = card.target.metricGroup {
+                        MetricGrid(group: group, snapshot: snapshot, now: now)
+                    }
+                }
+            }
+
+            if state.isFailing, let message = state.errorText {
+                FailureNote(message: message, lastSuccess: state.lastSuccess)
+            } else if state.value == nil {
+                Text("Waiting for first refresh…")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            } else if state.isStale(asOf: now) {
+                // A value old enough to stop counting as evidence of health says so on the
+                // card too, not just in the glyph.
+                Text("Older than \(Int(Health.staleAfter / 60)) minutes — not current.")
+                    .font(.system(size: 10)).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func alarmBody(_ alarm: AlarmSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 7) {
+                Circle().fill(color(alarm.state)).frame(width: 8, height: 8)
+                Text(alarm.state).font(.system(size: 12, weight: .medium))
+                Spacer()
+                if let updated = alarm.stateUpdated {
+                    Text("since \(Fmt.relative(updated, asOf: now))")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+            }
+            if !alarm.reason.isEmpty {
+                Text(alarm.reason)
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func color(_ value: String) -> Color {
+        switch value {
+        case "OK": return .green
+        case "ALARM": return .red
+        default: return .orange
         }
     }
 }

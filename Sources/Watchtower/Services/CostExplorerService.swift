@@ -7,11 +7,10 @@ import Foundation
 /// GroupBy per question, one call per question.
 struct CostExplorerService {
     let client: AWSClient
-    let config: Configuration
 
     static let cacheLifetime: TimeInterval = 24 * 3600
 
-    func monthToDateByService(now: Date = Date()) async throws -> CostBreakdown {
+    func monthToDateByService(profile: String, now: Date = Date()) async throws -> CostBreakdown {
         let calendar = Calendar(identifier: .gregorian)
         let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
         // CE's end date is exclusive and its data lags ~24h, so today is the right bound.
@@ -22,6 +21,7 @@ struct CostExplorerService {
             service: "ce",
             host: "ce.us-east-1.amazonaws.com",   // Cost Explorer is us-east-1 only
             region: "us-east-1",
+            profile: profile,
             target: "AWSInsightsIndexService.GetCostAndUsage",
             api: "GetCostAndUsage",
             payload: [

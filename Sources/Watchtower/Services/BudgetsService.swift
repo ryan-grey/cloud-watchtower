@@ -6,21 +6,23 @@ import Foundation
 /// which is why it is polled slowly rather than every minute.
 struct BudgetsService {
     let client: AWSClient
-    let config: Configuration
 
-    func describeBudget() async throws -> BudgetSnapshot {
+    func describeBudget(accountId: String,
+                        name: String,
+                        profile: String) async throws -> BudgetSnapshot {
         let response = try await client.json(
             service: "budgets",
             host: "budgets.amazonaws.com",     // global endpoint, signed against us-east-1
             region: "us-east-1",
+            profile: profile,
             target: "AWSBudgetServiceGateway.DescribeBudget",
             api: "DescribeBudget",
-            payload: ["AccountId": config.accountId, "BudgetName": config.budgetName]
+            payload: ["AccountId": accountId, "BudgetName": name]
         )
 
         guard let budget = response["Budget"] as? [String: Any] else {
             throw AWSError(code: "BudgetNotFound",
-                           message: "No budget named “\(config.budgetName)”")
+                           message: "No budget named “\(name)”")
         }
 
         let limitObject = budget["BudgetLimit"] as? [String: Any]
@@ -37,7 +39,7 @@ struct BudgetsService {
         }
 
         return BudgetSnapshot(
-            name: budget["BudgetName"] as? String ?? config.budgetName,
+            name: budget["BudgetName"] as? String ?? name,
             limit: limit,
             actual: actualAmount,
             unit: (limitObject?["Unit"] as? String) ?? "USD",
