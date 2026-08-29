@@ -95,43 +95,50 @@ struct BudgetBar: View {
     }
 }
 
-/// The 1h / 24h metric grid.
+/// A metric card's rows, rendered across the group's windows.
+///
+/// Knows nothing about CloudFront, Lambda or anything else: it reads `DerivedSpec` rows off
+/// the group and asks the snapshot for each value. That is what lets one panel hold a
+/// distribution's error rates and a function's duration without either card being a special
+/// case.
 struct MetricGrid: View {
+    let group: MetricGroup
     let snapshot: MetricsSnapshot
-
-    private struct Column: Identifiable {
-        let id: String
-        let hours: Double
-    }
-    private let columns = [Column(id: "Last hour", hours: 1), Column(id: "Last 24h", hours: 24)]
+    let now: Date
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(" ").font(.system(size: 10))
-                ForEach(["Requests", "4xx rate", "5xx rate"], id: \.self) { label in
-                    Text(label)
+                ForEach(group.derived, id: \.label) { spec in
+                    Text(spec.label)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
-            ForEach(columns) { column in
+            ForEach(group.windows, id: \.self) { hours in
                 VStack(alignment: .trailing, spacing: 6) {
-                    Text(column.id)
+                    Text(Fmt.windowLabel(hours))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.tertiary)
-                    Text(Fmt.count(snapshot.requests(hours: column.hours)))
-                        .font(.system(size: 11, weight: .medium)).monospacedDigit()
-                    Text(Fmt.rate(snapshot.errorRate(hours: column.hours, kind: .client)))
-                        .font(.system(size: 11, weight: .medium)).monospacedDigit()
-                    Text(Fmt.rate(snapshot.errorRate(hours: column.hours, kind: .server)))
-                        .font(.system(size: 11, weight: .medium)).monospacedDigit()
-                        .foregroundStyle(
-                            (snapshot.errorRate(hours: column.hours, kind: .server) ?? 0) >= 1
-                            ? .orange : .primary)
+                    ForEach(group.derived, id: \.label) { spec in
+                        let value = snapshot.value(spec, hours: hours, now: now)
+                        Text(Fmt.metric(value, unit: spec.unit))
+                            .font(.system(size: 11, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(tint(spec, value))
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
+    }
+
+    /// Cosmetic only. Metrics never vote on the glyph, so a threshold here cannot make a
+    /// broken monitor look healthy or the reverse.
+    private func tint(_ spec: DerivedSpec, _ value: Double?) -> Color {
+        guard let value, let limit = spec.warnAbove, value > limit else { return .primary }
+        return .orange
     }
 }

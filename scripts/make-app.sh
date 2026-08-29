@@ -8,7 +8,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${CONFIG:-release}"
-APP="$ROOT/dist/Watchtower.app"
+# Overridable so a branch build can be assembled and tested without replacing the shipped
+# app in dist/ — which this script would otherwise rm -rf.
+APP="${APP:-$ROOT/dist/Watchtower.app}"
 BUNDLE_ID="dev.ryangrey.watchtower"
 VERSION="1.0.0"
 

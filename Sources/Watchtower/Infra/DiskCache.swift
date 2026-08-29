@@ -2,15 +2,12 @@ import Foundation
 
 /// Last known good values, so a restart shows real data with an honest age rather than a
 /// blank panel — and so the expensive Cost Explorer result survives across launches.
+///
+/// Keyed by target id: a card that was removed and re-added is a different card, and should
+/// not inherit a stale value under a name the user has since reused.
 struct CachedState: Codable {
-    var alarm: AlarmSnapshot?
-    var alarmAt: Date?
-    var budget: BudgetSnapshot?
-    var budgetAt: Date?
-    var metrics: MetricsSnapshot?
-    var metricsAt: Date?
-    var cost: CostBreakdown?
-    var costAt: Date?
+    var cards: [String: Loaded<CardPayload>] = [:]
+    var cost: Loaded<CostBreakdown> = Loaded<CostBreakdown>()
 }
 
 enum DiskCache {
@@ -27,6 +24,8 @@ enum DiskCache {
     static func load() -> CachedState {
         guard let data = try? Data(contentsOf: fileURL),
               let state = try? decoder.decode(CachedState.self, from: data) else {
+            // A 1.x cache has a different shape. Losing it costs one poll interval of
+            // freshness, which is cheaper than migrating a throwaway file.
             return CachedState()
         }
         return state

@@ -34,6 +34,38 @@ enum Fmt {
     static func percent(_ fraction: Double) -> String {
         String(format: "%.0f%%", fraction * 100)
     }
+
+    static func duration(_ milliseconds: Double) -> String {
+        if milliseconds >= 1000 { return String(format: "%.2fs", milliseconds / 1000) }
+        return String(format: "%.0fms", milliseconds)
+    }
+
+    static func bytes(_ value: Double) -> String {
+        if value >= 1_073_741_824 { return String(format: "%.2f GB", value / 1_073_741_824) }
+        if value >= 1_048_576 { return String(format: "%.1f MB", value / 1_048_576) }
+        if value >= 1024 { return String(format: "%.0f KB", value / 1024) }
+        return String(format: "%.0f B", value)
+    }
+
+    /// The one place a derived metric becomes text. nil is never rendered as a number:
+    /// an empty window and a zero denominator both mean "undefined", and printing 0 for
+    /// either is the specific lie this app exists to avoid.
+    static func metric(_ value: Double?, unit: MetricUnit) -> String {
+        guard let value else { return "—" }
+        switch unit {
+        case .count:        return count(value)
+        case .percent:      return rate(value)
+        case .milliseconds: return duration(value)
+        case .bytes:        return bytes(value)
+        }
+    }
+
+    static func windowLabel(_ hours: Double) -> String {
+        if hours < 1 { return "\(Int(hours * 60))m" }
+        if hours == 1 { return "Last hour" }
+        if hours < 48 { return "Last \(Int(hours))h" }
+        return "Last \(Int(hours / 24))d"
+    }
 }
 
 extension Health {

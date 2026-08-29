@@ -29,32 +29,51 @@ enum Health {
     /// Staleness beyond which a value stops counting as evidence of health.
     static let staleAfter: TimeInterval = 15 * 60
 
-    static func evaluate(alarm: Loaded<AlarmSnapshot>,
-                         budget: Loaded<BudgetSnapshot>,
-                         now: Date = Date()) -> Health {
+    /// Only alarms and budgets vote. Both are free to poll, so they can be fresh enough to
+    /// trust; metrics are billed and deliberately lazy, and a glyph driven by a 15-minute-old
+    /// number would either be wrong or force the poll rate — and therefore the bill — up.
+    ///
+    /// Composition matters as much as the verdict: with N targets a single firing alarm must
+    /// not hide a second one, and an unreachable card must not be averaged away by healthy
+    /// neighbours. Every reason is listed; any unknown outranks a clean sweep.
+    static func evaluate(cards: [TargetCard], now: Date = Date()) -> Health {
+        let voting = cards.filter(\.target.isFree)
+        guard !voting.isEmpty else {
+            return .unknown(reason: cards.isEmpty
+                            ? "No watch targets configured"
+                            : "Watching metrics only — no alarm or budget to judge health")
+        }
 
         var reasons: [String] = []
+        var missing: [TargetCard] = []
+        var stale: [TargetCard] = []
 
-        // Both inputs are free to poll, so if either is missing or stale we genuinely do not
-        // know the state and must say so rather than defaulting to OK.
-        let alarmStale = (alarm.age(asOf: now) ?? .greatestFiniteMagnitude) > staleAfter
-        let budgetStale = (budget.age(asOf: now) ?? .greatestFiniteMagnitude) > staleAfter
+        for card in voting {
+            guard let payload = card.state.value else { missing.append(card); continue }
+            if card.state.isStale(asOf: now) { stale.append(card); continue }
 
-        if let value = alarm.value, !alarmStale {
-            if value.isAlarming { reasons.append("Alarm firing") }
-            else if value.isUnknown { reasons.append("Alarm has no data") }
-        }
-        if let value = budget.value, !budgetStale, value.isOverEightyPercent {
-            reasons.append(String(format: "Spend at %.0f%% of budget", value.fraction * 100))
+            if let alarm = payload.alarm {
+                if alarm.isAlarming { reasons.append("\(card.target.displayName) firing") }
+                else if alarm.isUnknown { reasons.append("\(card.target.displayName) has no data") }
+            }
+            if let budget = payload.budget, budget.isOverEightyPercent {
+                reasons.append(String(format: "%@ at %.0f%% of budget",
+                                      card.target.displayName, budget.fraction * 100))
+            }
         }
 
         if !reasons.isEmpty { return .warning(reasons: reasons) }
 
-        if alarm.value == nil || budget.value == nil {
-            return .unknown(reason: alarm.errorText ?? budget.errorText ?? "Waiting for first refresh")
+        if let first = missing.first {
+            let detail = first.state.errorText ?? "Waiting for first refresh"
+            return .unknown(reason: missing.count == 1
+                            ? "\(first.target.displayName): \(detail)"
+                            : "\(missing.count) targets have no data")
         }
-        if alarmStale || budgetStale {
-            return .unknown(reason: "Data is stale")
+        if let first = stale.first {
+            return .unknown(reason: stale.count == 1
+                            ? "\(first.target.displayName) is stale"
+                            : "\(stale.count) targets are stale")
         }
         return .ok
     }

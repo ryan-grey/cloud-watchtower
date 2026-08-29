@@ -19,23 +19,22 @@ the alarm is firing or spend is over 80% of budget, `cloud.slash` when the app c
 scripts/make-app.sh                 # builds and assembles dist/Watchtower.app
 ```
 
-Point it at your account. These are **not** committed — the repo ships placeholders, because
-an account ID plus an IAM user name is enough for a stranger to construct valid ARNs for your
-account:
+Point it at your account from the panel's gear button, which opens a settings window: add
+alarm, budget and metric cards, pick a profile and region per card, and test each one against
+AWS before saving. Nothing is committed here — the repo ships placeholders, because an account
+ID plus an IAM user name is enough for a stranger to construct valid ARNs for your account.
 
-```sh
-defaults write dev.ryangrey.watchtower accountId      -string "123456789012"
-defaults write dev.ryangrey.watchtower distributionId -string "EXXXXXXXXXXXXX"
-defaults write dev.ryangrey.watchtower alarmName      -string "cloudfront-5xx-error-rate"
-defaults write dev.ryangrey.watchtower budgetName     -string "my-monthly-budget"
-defaults write dev.ryangrey.watchtower profileName    -string "watchtower"
-defaults write dev.ryangrey.watchtower region         -string "us-east-1"
+The settings window prices the configuration while you build it: **"3 billed metrics x 2880
+polls/mo = $0.09/mo"**. That is the product thesis made interactive rather than asserted in a
+table, and it is what stops a generic metric model quietly becoming expensive.
 
-open dist/Watchtower.app
-```
+An install configured with the older scalar keys (`accountId`, `distributionId`, `alarmName`,
+`budgetName`, `profileName`, `region`) migrates automatically on first launch into equivalent
+targets. The old keys are **read, never deleted**, so an earlier build still finds its
+configuration exactly where it left it.
 
-Until `accountId` and `distributionId` are set, the app says so rather than failing with a
-confusing AWS error.
+Until there is at least one target, the app says so rather than failing with a confusing AWS
+error.
 
 Verify the AWS path from a terminal without touching the UI:
 
@@ -46,8 +45,15 @@ dist/Watchtower.app/Contents/MacOS/Watchtower --selftest --profile default
 `--render` writes at 2x by default (`--scale 1` for 1x); `scripts/optimise-png.py` converts the
 result to an indexed PNG, which is how the screenshot on ryangrey.dev got from 193 KB to 77 KB.
 
-Other entry points: `--preview` (panel in a normal window, light and dark side by side) and
-`--render <path.png>` (draw the panel straight to a PNG, no screen involved).
+Other entry points: `--preview` (panel in a normal window, light and dark side by side),
+`--render <path.png>` (draw the panel straight to a PNG, no screen involved),
+`--render-settings <path.png>` (the same for the settings window), and `--verify`.
+
+`--verify` runs the offline logic checks — derivation forms, the undefined-vs-zero rules,
+deduplication, cost projection, config migration and glyph composition. No network, no
+credentials, no cost. It is not XCTest because that framework ships with Xcode and this
+project builds with Command Line Tools only; a flag on the binary keeps that constraint intact
+and stays runnable in CI.
 
 ---
 
@@ -94,13 +100,42 @@ on a timer, and metrics batch into one call.
 - **Metrics are billed and drive nothing but the panel's detail rows.** They can therefore be
   lazy: 900 s in the background, 300 s while the panel is in active use, plus a refresh on
   panel-open that is throttled to 60 s so reopening the panel repeatedly is free.
-- **One call, not several.** All three CloudFront metrics batch into a single
-  `GetMetricData` request over a 25-hour window at hourly resolution, and both the 1-hour and
-  24-hour figures are computed client-side. Two separate windows would double the billable
-  metric count and still not give the request-weighted rate below.
+- **One window, not several.** All three CloudFront metrics go into a single `GetMetricData`
+  request over a 25-hour window at hourly resolution, and both the 1-hour and 24-hour figures
+  are computed client-side. Two separate windows would double the billable metric count and
+  still not give the request-weighted rate below.
+  **Note what this is not:** `GetMetricData` bills per *metric requested*, not per request, so
+  putting several metrics in one call is not itself a saving — three metrics across three
+  calls costs exactly what one call with three metrics costs. The saving is the single window.
+  With N targets the bill is linear in the number of distinct series; batching does not bend
+  that curve, and fewer series and a slower cadence are the only levers that do.
 - **Backoff and sleep.** Exponential backoff to a 15-minute ceiling on failure, and polling
   stops entirely on `NSWorkspace.willSleepNotification`. A monitoring app that quietly bills
   you while the lid is shut is the exact failure mode this project is about.
+
+### What a card can watch
+
+A watch target is an alarm, a budget, or a **metric group**: a namespace, a set of dimensions,
+the series to request, and the rows to derive from them. Built-in recipes cover CloudFront,
+Lambda, API Gateway and DynamoDB, plus a custom escape hatch.
+
+The four displayed forms are a closed set, not an expression language, because each one has a
+defined answer to *what does no data mean*:
+
+| Form | Used by | Undefined when |
+|---|---|---|
+| `sum` | request and invocation counts | the window holds no datapoints |
+| `ratio` | Lambda, API Gateway, DynamoDB error rates | the denominator is zero |
+| `weightedAverage` | CloudFront rates, duration weighted by invocations | the weight totals zero |
+| `latest` | gauge-style metrics | the window is empty |
+
+Generalising was not a dilution of the honesty properties, because the request-weighted rate
+is not CloudFront-specific — it is *ratio-metric*-specific, and every service above has that
+shape. `ΣErrors / ΣInvocations` is the same machinery as the rate below, in a cleaner form.
+
+Only series that a displayed row actually reads are requested, and identical
+`(namespace, metric, dimensions, stat, period)` tuples across targets are fetched once and
+shared. Deduplication is the only batching that saves money — see below.
 
 ### Request-weighted error rates
 
@@ -307,9 +342,36 @@ Not yet verified — see Known gaps:
 ## Known gaps
 
 - Launch-at-login is wired to `SMAppService` but has not been exercised across a reboot.
-- The panel has no settings UI; configuration is `defaults write dev.ryangrey.watchtower …`
-  (`accountId`, `distributionId`, `alarmName`, `budgetName`, `profileName`, `region`).
-- `--render` needs a fixed 9-second wait for data to arrive rather than observing load state.
+- `--render` and `--render-settings` need a fixed wait for data to arrive rather than
+  observing load state.
+- Resource discovery is not built: identifiers are still typed, not picked from a list. That
+  needs `cloudfront:ListDistributions`, `budgets:DescribeBudgets` and `cloudwatch:ListMetrics`
+  added to the policy.
+
+### Fixed: the "last hour" column was empty by one second
+
+Worth recording because it was invisible rather than noisy, and it affected every build before
+this one.
+
+CloudWatch timestamps a bucket at its **start** and aligns the bucket grid to the request's
+`StartTime` — which this app derives from "now". So the newest bucket always begins almost
+exactly one window-length ago, and selecting buckets with `timestamp >= now - 3600` dropped it
+by however long the request took. Observed live: buckets ran to `22:47:00Z` against a cutoff
+of `22:47:01Z`, and the entire "last hour" column rendered `—`.
+
+A bucket starting at `t` covers `t ..< t + period`, so membership is now decided by whether
+that coverage extends past the cutoff. The same off-by-one silently gave the 24-hour figure 23
+buckets instead of 24.
+
+Before and after, same distribution, minutes apart:
+
+```
+Requests   Last hour —        Last 24h 3.1k
+Requests   Last hour 458      Last 24h 3.4k
+```
+
+The old code returned `0` for the requests row and `—` for the two rate rows, which is why it
+read as "a quiet hour" rather than as a bug.
 
 ## An operational finding
 

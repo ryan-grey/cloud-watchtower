@@ -16,6 +16,11 @@ struct WatchtowerApp: App {
     init() {
         let arguments = CommandLine.arguments
 
+        // Offline logic checks. No network, no credentials, no cost — safe in CI.
+        if arguments.contains("--verify") {
+            Verify.runAndExit()
+        }
+
         // Terminal entry point, checked before any window exists.
         if arguments.contains("--selftest") {
             let profile = arguments.firstIndex(of: "--profile")
@@ -40,6 +45,17 @@ struct WatchtowerApp: App {
                 .flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil } ?? 2
             DispatchQueue.main.asyncAfter(deadline: .now() + 9) {
                 PreviewWindow.render(to: path, scale: scale)
+            }
+        }
+
+        if let index = arguments.firstIndex(of: "--render-settings"),
+           arguments.indices.contains(index + 1) {
+            let path = arguments[index + 1]
+            NSApplication.shared.setActivationPolicy(.accessory)
+            // Same fixed wait as --render: the window is drawn once the first poll has
+            // populated the profile list.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                SettingsWindow.render(state: Shared.state, to: path)
             }
         }
 

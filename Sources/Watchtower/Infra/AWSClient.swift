@@ -26,10 +26,13 @@ actor AWSClient {
     private let credentials: CredentialProvider
     private let meter: CallMeter
     private let session: URLSession
-    var profileName: String
+    /// Only a fallback for callers with no target in hand (the Cost Explorer button, the
+    /// footer). Every polled call names its target's own profile, because Pro can watch two
+    /// accounts at once and a single ambient profile would silently sign for the wrong one.
+    var defaultProfile: String
 
     init(profileName: String, credentials: CredentialProvider, meter: CallMeter) {
-        self.profileName = profileName
+        self.defaultProfile = profileName
         self.credentials = credentials
         self.meter = meter
         let config = URLSessionConfiguration.ephemeral
@@ -38,13 +41,12 @@ actor AWSClient {
         self.session = URLSession(configuration: config)
     }
 
-    func setProfile(_ name: String) async {
-        profileName = name
-        await credentials.invalidate()
+    func setDefaultProfile(_ name: String) async {
+        defaultProfile = name
     }
 
-    func resolution() async -> CredentialProvider.Resolution? {
-        await credentials.resolution
+    func resolution(for profile: String) async -> CredentialProvider.Resolution? {
+        await credentials.resolution(for: profile)
     }
 
     // MARK: - Query protocol (CloudWatch)
@@ -52,6 +54,7 @@ actor AWSClient {
     func query(service: String,
                host: String,
                region: String,
+               profile: String? = nil,
                api: String,
                version: String,
                params: [String: String],
@@ -71,6 +74,7 @@ actor AWSClient {
                          forHTTPHeaderField: "Content-Type")
 
         let data = try await send(&request, service: service, region: region,
+                                  profile: profile ?? defaultProfile,
                                   api: api, billedMetrics: billedMetrics, isJSON: false)
         guard let root = XMLNode.parse(data) else {
             throw AWSError(code: "MalformedResponse", message: "could not parse XML from \(api)")
@@ -83,6 +87,7 @@ actor AWSClient {
     func json(service: String,
               host: String,
               region: String,
+              profile: String? = nil,
               target: String,
               api: String,
               payload: [String: Any]) async throws -> [String: Any] {
@@ -95,6 +100,7 @@ actor AWSClient {
         request.setValue(target, forHTTPHeaderField: "X-Amz-Target")
 
         let data = try await send(&request, service: service, region: region,
+                                  profile: profile ?? defaultProfile,
                                   api: api, billedMetrics: 0, isJSON: true)
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AWSError(code: "MalformedResponse", message: "could not parse JSON from \(api)")
@@ -107,11 +113,12 @@ actor AWSClient {
     private func send(_ request: inout URLRequest,
                       service: String,
                       region: String,
+                      profile: String,
                       api: String,
                       billedMetrics: Int,
                       isJSON: Bool) async throws -> Data {
 
-        let creds = try await credentials.credentials(profile: profileName)
+        let creds = try await credentials.credentials(profile: profile)
         SigV4.sign(&request, service: service, region: region, credentials: creds)
 
         // Count the call before awaiting the response: a request that is sent and then fails
