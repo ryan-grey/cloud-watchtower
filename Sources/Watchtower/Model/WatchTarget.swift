@@ -261,6 +261,17 @@ struct WatchTarget: Codable, Equatable, Identifiable {
         return nil
     }
 
+    /// Targets bucketed by the credentials and endpoint they share.
+    ///
+    /// Everything batchable can only be batched inside one of these buckets: a request is
+    /// signed for one profile and addressed to one region, so two accounts are always two
+    /// calls however similar their metrics look.
+    static func grouped(_ targets: [WatchTarget]) -> [[WatchTarget]] {
+        Dictionary(grouping: targets) { "\($0.profile)|\($0.region)" }
+            .sorted { $0.key < $1.key }
+            .map(\.value)
+    }
+
     var sectionTitle: String {
         switch kind {
         case .alarm:                return "Alarm"
