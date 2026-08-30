@@ -217,7 +217,28 @@ suffix to fix when `DescribeBudget` is denied. Surface that in the GUI.
 
 ## 4. Scope
 
-### Phase 1 — Multi-tenancy and configuration (~43 h)
+### Phase 1 — Multi-tenancy and configuration (~43 h) — COMPLETE 2026-08-29
+
+Delivered on branch `pro/phase-1-multi-target`. Clean build, no warnings, zero
+`@State`, zero dependencies, 63 offline checks (`--verify`) and a live
+`--selftest` against the real account.
+
+**One bug fixed that predates Pro and affected every prior build.** CloudWatch
+timestamps a bucket at its start and aligns the bucket grid to the request's
+`StartTime`, which is derived from "now" — so the newest bucket always begins
+one window-length ago, and `timestamp >= now - 3600` dropped it by the
+request's own latency. Observed live at `22:47:00Z` against a `22:47:01Z`
+cutoff: the entire "last hour" column rendered `—`. Membership is now decided
+by bucket coverage. The same off-by-one gave the 24-hour figure 23 buckets
+instead of 24, which may account for part of the README's 56.93% vs 56.99% CLI
+gap. It read as a quiet hour rather than a bug because the old code returned
+`0` for the requests row and `—` only for the two rate rows.
+
+**Still unverified, and the one thing worth a real test:** multi-account. The
+per-profile credential cache and cross-account batching are covered by offline
+checks and reasoning, not by a live two-account run, because only one profile
+exists in `~/.aws`. Phase 2's CI throwaway account is the natural place to
+close this.
 
 **Data model settled 2026-08-29 — see risk #3 in §6.** Generic CloudWatch
 transport with typed recipes, not CloudFront-specific. The +8 h over the
@@ -447,9 +468,11 @@ than "built a menu-bar app."
 3. ~~Decide risk #3: CloudFront-specific or generic CloudWatch metrics.~~
    **Decided 2026-08-29: generic transport with typed recipes.** See §6 risk #3
    and the Phase 1 schema in §4.
-4. Then start Phase 1.
+4. ~~Then start Phase 1.~~ **Complete 2026-08-29** — see §4.
 
-Items 2 and 3 are settled; item 1 remains external and unresolved, and still
-gates phases 2–5. Phase 1 has no dependency on item 1 and is clear to begin.
+Items 2, 3 and 4 are done. Item 1 remains external and now gates everything
+that follows: Phase 2 is the phase where the membership name actually appears
+on the product, since notarized Developer-ID builds display it as the developer
+identity. Nothing in phases 2–5 should begin until it resolves.
 
 Nothing in phases 2–5 should begin before item 1 resolves.
