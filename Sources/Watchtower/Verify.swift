@@ -19,6 +19,8 @@ enum Verify {
         projection()
         migration()
         healthComposition()
+        editing()
+        batching()
 
         print("")
         if failures == 0 {
@@ -302,6 +304,110 @@ enum Verify {
               defaults.string(forKey: "distributionId") == "E2EXAMPLE")
 
         defaults.removePersistentDomain(forName: suite)
+    }
+
+    // MARK: 7. Settings-window edits
+
+    private static func editing() {
+        print("\nediting a configuration")
+
+        var config = Configuration.empty
+        let lambdaID = config.addMetric(.lambda)
+        let alarmID = config.addAlarm()
+        let budgetID = config.addBudget()
+        check("add produces one target per call", config.targets.count == 3)
+        check("a new budget inherits the default account id",
+              { if case .budget(let account, _) = config.targets[2].kind
+                { return account == Configuration.placeholderAccountId }; return false }())
+        check("a new CloudFront card is pinned to us-east-1 on creation",
+              { var c = Configuration.empty
+                let id = c.addMetric(.cloudFront)
+                return c.targets.first { $0.id == id }?.region == "us-east-1" }())
+
+        // Re-typing a card keeps its identity, so the panel does not lose its cached value.
+        config.changeRecipe(lambdaID, to: .apiGateway)
+        check("changing a recipe preserves the target's id",
+              config.targets.contains { $0.id == lambdaID })
+        check("and swaps in the new recipe's metrics",
+              config.targets.first { $0.id == lambdaID }?.metricGroup?.recipe == .apiGateway)
+
+        // A dimension the new recipe does not use must not be carried across.
+        var carrying = Configuration.empty
+        let cfID = carrying.addMetric(.cloudFront)
+        carrying.targets[0].kind = .metricGroup(
+            RecipeID.cloudFront.group(dimensions: ["DistributionId": "E1"]))
+        carrying.changeRecipe(cfID, to: .lambda)
+        check("a dimension the new recipe cannot use is dropped",
+              carrying.targets[0].metricGroup?.dimensions["DistributionId"] == nil)
+        check("and the fixed Region=Global dimension goes with it",
+              carrying.targets[0].metricGroup?.dimensions["Region"] == nil)
+
+        // Removal answers what to select next, which is what stops the editor emptying.
+        let next = config.remove(alarmID)
+        check("removing selects what slid into its place", next == budgetID,
+              "got \(String(describing: next))")
+        check("and the target is gone", !config.targets.contains { $0.id == alarmID })
+        let last = config.remove(budgetID)
+        check("removing the last target selects the one before it", last == lambdaID)
+        check("removing everything selects nothing", config.remove(lambdaID) == nil)
+        check("and leaves an empty, unconfigured configuration",
+              config.targets.isEmpty && !config.isConfigured)
+
+        // Applying an edit must not blank cards that survived it.
+        var live = Configuration.empty
+        let keptID = live.addMetric(.lambda)
+        let droppedID = live.addAlarm()
+        var cards = TargetCard.reconcile(targets: live.targets, keeping: [])
+        cards[0].state.succeeded(.metrics(MetricsSnapshot(series: [])), at: base)
+        cards[1].state.succeeded(.alarm(AlarmSnapshot(name: "a", state: "OK",
+                                                      stateUpdated: nil, reason: "")), at: base)
+        live.remove(droppedID)
+        live.targets[0].displayName = "renamed"
+        let after = TargetCard.reconcile(targets: live.targets, keeping: cards)
+        check("an edit keeps the surviving card's value", after.count == 1
+              && after[0].id == keptID && after[0].state.value != nil)
+        check("and its last-success time, so its age stays honest",
+              after[0].state.lastSuccess == base)
+
+        // A config file must never be written back over the real install.
+        var ephemeral = Configuration.demo
+        ephemeral.isEphemeral = true
+        let suite = "dev.ryangrey.watchtower.verify.ephemeral"
+        if let defaults = UserDefaults(suiteName: suite) {
+            defaults.removePersistentDomain(forName: suite)
+            ephemeral.save(defaults: defaults)
+            check("a --config run never writes back to defaults",
+                  defaults.data(forKey: "targets") == nil)
+            defaults.removePersistentDomain(forName: suite)
+        }
+    }
+
+    // MARK: 8. Batching boundaries
+
+    private static func batching() {
+        print("\nbatching boundaries")
+
+        func alarm(_ name: String, _ profile: String, _ region: String) -> WatchTarget {
+            WatchTarget(displayName: name, profile: profile, region: region,
+                        kind: .alarm(name: name))
+        }
+        let targets = [
+            alarm("a", "prod", "us-east-1"),
+            alarm("b", "prod", "us-east-1"),
+            alarm("c", "prod", "eu-west-1"),
+            alarm("d", "staging", "us-east-1")
+        ]
+        let buckets = WatchTarget.grouped(targets)
+        check("targets bucket by (profile, region)", buckets.count == 3,
+              "got \(buckets.count)")
+        check("two alarms in one account and region share a single call",
+              buckets.contains { $0.count == 2 })
+        check("the same region under another profile does not join them",
+              buckets.filter { $0.count == 1 }.count == 2)
+        check("grouping loses nothing", buckets.flatMap { $0 }.count == targets.count)
+        check("bucket order is stable across calls",
+              WatchTarget.grouped(targets).map { $0.map(\.displayName) }
+                == buckets.map { $0.map(\.displayName) })
     }
 
     // MARK: 6. Glyph composition across N cards

@@ -104,14 +104,6 @@ final class AppState: ObservableObject {
 
     func card(_ id: UUID) -> TargetCard? { cards.first { $0.id == id } }
 
-    /// Targets grouped by the credentials and endpoint they share. Everything that can be
-    /// batched can only be batched inside one of these buckets.
-    private func grouped(_ targets: [WatchTarget]) -> [[WatchTarget]] {
-        Dictionary(grouping: targets) { "\($0.profile)|\($0.region)" }
-            .sorted { $0.key < $1.key }
-            .map(\.value)
-    }
-
     // MARK: - Lifecycle
 
     private func restoreFromDisk() {
@@ -207,7 +199,7 @@ final class AppState: ObservableObject {
         for target in targets { update(target.id) { $0.isRefreshing = true } }
 
         var allSucceeded = true
-        for bucket in grouped(targets) {
+        for bucket in WatchTarget.grouped(targets) {
             guard let first = bucket.first else { continue }
             let names = bucket.compactMap { target -> String? in
                 if case .alarm(let name) = target.kind { return name }; return nil
@@ -274,7 +266,7 @@ final class AppState: ObservableObject {
         for target in targets { update(target.id) { $0.isRefreshing = true } }
 
         var allSucceeded = true
-        for bucket in grouped(targets) {
+        for bucket in WatchTarget.grouped(targets) {
             guard let first = bucket.first else { continue }
             do {
                 let snapshots = try await cloudWatch.fetchMetrics(
@@ -406,14 +398,9 @@ final class AppState: ObservableObject {
     /// Surviving a config change matters: re-fetching everything because one card's name was
     /// corrected would blank the panel and, for metric cards, cost money to refill.
     func applyConfiguration(_ new: Configuration) {
-        let previous = Dictionary(cards.map { ($0.id, $0.state) }, uniquingKeysWith: { a, _ in a })
         config = new
         new.save()
-        cards = new.targets.map { target in
-            var card = TargetCard(target: target)
-            if let kept = previous[target.id] { card.state = kept }
-            return card
-        }
+        cards = TargetCard.reconcile(targets: new.targets, keeping: cards)
         if new.isConfigured, credentialError == Configuration.notConfiguredMessage {
             credentialError = nil
         } else if !new.isConfigured {

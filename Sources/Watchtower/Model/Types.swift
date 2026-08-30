@@ -204,4 +204,19 @@ struct TargetCard: Identifiable, Equatable {
     var target: WatchTarget
     var state = Loaded<CardPayload>()
     var id: UUID { target.id }
+
+    /// Rebuilds the card list for an edited configuration, carrying over the live state of
+    /// every target that survived.
+    ///
+    /// Surviving an edit matters: re-fetching everything because one card's name was
+    /// corrected would blank the panel, and for metric cards it would cost money to refill.
+    static func reconcile(targets: [WatchTarget], keeping existing: [TargetCard]) -> [TargetCard] {
+        let previous = Dictionary(existing.map { ($0.id, $0.state) },
+                                  uniquingKeysWith: { first, _ in first })
+        return targets.map { target in
+            var card = TargetCard(target: target)
+            if let kept = previous[target.id] { card.state = kept }
+            return card
+        }
+    }
 }

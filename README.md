@@ -49,11 +49,25 @@ Other entry points: `--preview` (panel in a normal window, light and dark side b
 `--render <path.png>` (draw the panel straight to a PNG, no screen involved),
 `--render-settings <path.png>` (the same for the settings window), and `--verify`.
 
-`--verify` runs the offline logic checks — derivation forms, the undefined-vs-zero rules,
-deduplication, cost projection, config migration and glyph composition. No network, no
-credentials, no cost. It is not XCTest because that framework ships with Xcode and this
-project builds with Command Line Tools only; a flag on the binary keeps that constraint intact
-and stays runnable in CI.
+`--verify` runs 63 offline logic checks — derivation forms, the undefined-vs-zero rules,
+deduplication, cost projection, config migration, settings edits, batching boundaries and
+glyph composition. No network, no credentials, no cost. It is not XCTest because that
+framework ships with Xcode and this project builds with Command Line Tools only; a flag on the
+binary keeps that constraint intact and stays runnable in CI.
+
+`--config <path.json>` runs against a configuration file instead of `defaults`, and
+`--write-demo-config <path.json>` emits one covering every recipe across two profiles and two
+regions with no real identifiers in it:
+
+```sh
+Watchtower --write-demo-config demo.json
+Watchtower --config demo.json --render panel.png
+```
+
+This is how screenshots get generated without publishing a real distribution ID, and it makes
+a support request reproducible from a file rather than from a description of someone's
+`defaults`. A `--config` run never writes back to `defaults`, so it cannot disturb a real
+install.
 
 ---
 

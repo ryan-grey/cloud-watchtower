@@ -24,17 +24,134 @@ struct Configuration: Codable, Equatable {
                                      defaultRegion: "us-east-1",
                                      defaultAccountId: placeholderAccountId)
 
+    /// A configuration exercising every recipe across two profiles and two regions, with no
+    /// real identifiers in it. Emitted by `--write-demo-config` and consumed by `--config`.
+    static var demo: Configuration {
+        func metric(_ name: String, _ recipe: RecipeID, _ dimensions: [String: String],
+                    profile: String = "watchtower", region: String = "us-east-1") -> WatchTarget {
+            WatchTarget(displayName: name, profile: profile,
+                        region: recipe.forcedRegion ?? region,
+                        kind: .metricGroup(recipe.group(dimensions: dimensions)))
+        }
+        return Configuration(
+            targets: [
+                metric("checkout-api", .lambda, ["FunctionName": "checkout-api"]),
+                metric("public-site", .cloudFront, ["DistributionId": "EDEMODIST00001"]),
+                metric("orders-api", .apiGateway, ["ApiName": "orders"],
+                       profile: "staging", region: "eu-west-1"),
+                metric("sessions", .dynamoDB, ["TableName": "sessions"],
+                       profile: "staging", region: "eu-west-1"),
+                WatchTarget(displayName: "5xx error rate", profile: "watchtower",
+                            region: "us-east-1", kind: .alarm(name: "site-5xx-error-rate")),
+                WatchTarget(displayName: "lambda errors", profile: "staging",
+                            region: "eu-west-1", kind: .alarm(name: "checkout-errors")),
+                WatchTarget(displayName: "monthly", profile: "watchtower", region: "us-east-1",
+                            kind: .budget(accountId: placeholderAccountId, name: "monthly")),
+                WatchTarget(displayName: "staging monthly", profile: "staging",
+                            region: "eu-west-1",
+                            kind: .budget(accountId: placeholderAccountId,
+                                          name: "staging-monthly"))
+            ],
+            defaultProfile: "watchtower",
+            defaultRegion: "us-east-1",
+            defaultAccountId: placeholderAccountId)
+    }
+
     /// False until there is at least one target to watch.
     var isConfigured: Bool { !targets.isEmpty }
 
     static let notConfiguredMessage =
         "Not configured — add a watch target in Settings"
 
+    /// True when this came from `--config`, in which case it must never be written back to
+    /// `defaults` — a screenshot run would otherwise overwrite the real install. Not part of
+    /// the file format: it describes how a configuration was loaded, not what it contains.
+    var isEphemeral = false
+
+    private enum CodingKeys: String, CodingKey {
+        case targets, defaultProfile, defaultRegion, defaultAccountId
+    }
+
+    // MARK: Editing
+    //
+    // These are pure mutations on the model rather than methods on the settings window, so
+    // that adding, removing and re-typing a target can be checked by `--verify` without
+    // constructing an AppState — which would start pollers and open sockets.
+
+    @discardableResult
+    mutating func addMetric(_ recipe: RecipeID) -> UUID {
+        let target = WatchTarget(displayName: "New \(recipe.displayName)",
+                                 profile: defaultProfile,
+                                 region: recipe.forcedRegion ?? defaultRegion,
+                                 kind: .metricGroup(recipe.group(dimensions: [:])))
+        targets.append(target)
+        return target.id
+    }
+
+    @discardableResult
+    mutating func addAlarm() -> UUID {
+        let target = WatchTarget(displayName: "New alarm", profile: defaultProfile,
+                                 region: defaultRegion, kind: .alarm(name: ""))
+        targets.append(target)
+        return target.id
+    }
+
+    @discardableResult
+    mutating func addBudget() -> UUID {
+        let target = WatchTarget(displayName: "New budget", profile: defaultProfile,
+                                 region: defaultRegion,
+                                 kind: .budget(accountId: defaultAccountId, name: ""))
+        targets.append(target)
+        return target.id
+    }
+
+    /// Removes a target and answers what should be selected next — the one that slid into its
+    /// place, or the last remaining, or nothing.
+    @discardableResult
+    mutating func remove(_ id: UUID) -> UUID? {
+        guard let index = targets.firstIndex(where: { $0.id == id }) else { return nil }
+        targets.remove(at: index)
+        if targets.indices.contains(index) { return targets[index].id }
+        return targets.last?.id
+    }
+
+    /// Swapping a recipe keeps whatever dimension values still apply, so moving between two
+    /// recipes that share a dimension name does not make the user retype it. The target's id
+    /// is preserved, so its card keeps its place and its cached value.
+    mutating func changeRecipe(_ id: UUID, to recipe: RecipeID) {
+        guard let index = targets.firstIndex(where: { $0.id == id }),
+              let existing = targets[index].metricGroup else { return }
+        let carried = existing.dimensions.filter { recipe.dimensionKeys.contains($0.key) }
+        targets[index].kind = .metricGroup(recipe.group(dimensions: carried))
+        if let forced = recipe.forcedRegion { targets[index].region = forced }
+    }
+
     // MARK: Persistence
 
     private static let targetsKey = "targets"
 
+    /// `--config <path>` runs against a JSON file instead of `defaults`.
+    ///
+    /// Not only a test hook: CI screenshot generation needs a configuration that is stable
+    /// and contains no real account identifiers, and a support request is far easier to
+    /// reproduce from a file than from a description of someone's `defaults`.
+    static func configPathArgument(_ arguments: [String] = CommandLine.arguments) -> String? {
+        guard let index = arguments.firstIndex(of: "--config"),
+              arguments.indices.contains(index + 1) else { return nil }
+        return arguments[index + 1]
+    }
+
     static func load(defaults d: UserDefaults = .standard) -> Configuration {
+        if let path = configPathArgument() {
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                  var loaded = try? JSONDecoder().decode(Configuration.self, from: data) else {
+                FileHandle.standardError.write(
+                    Data("--config: could not read a configuration from \(path)\n".utf8))
+                exit(1)
+            }
+            loaded.isEphemeral = true
+            return loaded
+        }
         var config = Configuration.empty
         if let v = d.string(forKey: "profileName"), !v.isEmpty { config.defaultProfile = v }
         if let v = d.string(forKey: "region"), !v.isEmpty { config.defaultRegion = v }
@@ -54,6 +171,7 @@ struct Configuration: Codable, Equatable {
     }
 
     func save(defaults d: UserDefaults = .standard) {
+        guard !isEphemeral else { return }
         if let data = try? JSONEncoder().encode(targets) {
             d.set(data, forKey: Configuration.targetsKey)
         }

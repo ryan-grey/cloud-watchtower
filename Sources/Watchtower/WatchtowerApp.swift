@@ -16,6 +16,19 @@ struct WatchtowerApp: App {
     init() {
         let arguments = CommandLine.arguments
 
+        if let index = arguments.firstIndex(of: "--write-demo-config"),
+           arguments.indices.contains(index + 1) {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            guard let data = try? encoder.encode(Configuration.demo),
+                  (try? data.write(to: URL(fileURLWithPath: arguments[index + 1]))) != nil else {
+                FileHandle.standardError.write(Data("could not write demo config\n".utf8))
+                exit(1)
+            }
+            FileHandle.standardError.write(Data("wrote \(arguments[index + 1])\n".utf8))
+            exit(0)
+        }
+
         // Offline logic checks. No network, no credentials, no cost — safe in CI.
         if arguments.contains("--verify") {
             Verify.runAndExit()

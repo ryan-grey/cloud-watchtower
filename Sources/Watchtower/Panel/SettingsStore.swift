@@ -54,48 +54,19 @@ final class SettingsStore: ObservableObject {
     // MARK: Mutations
 
     func add(_ recipe: RecipeID?) {
-        let profile = draft.defaultProfile
-        let region = draft.defaultRegion
-        let target: WatchTarget
-
-        if let recipe {
-            target = WatchTarget(displayName: "New \(recipe.displayName)",
-                                 profile: profile,
-                                 region: recipe.forcedRegion ?? region,
-                                 kind: .metricGroup(recipe.group(dimensions: [:])))
-        } else {
-            target = WatchTarget(displayName: "New alarm", profile: profile,
-                                 region: region, kind: .alarm(name: ""))
-        }
-        draft.targets.append(target)
-        selection = target.id
+        selection = recipe.map { draft.addMetric($0) } ?? draft.addAlarm()
     }
 
-    func addBudget() {
-        let target = WatchTarget(displayName: "New budget",
-                                 profile: draft.defaultProfile,
-                                 region: draft.defaultRegion,
-                                 kind: .budget(accountId: draft.defaultAccountId, name: ""))
-        draft.targets.append(target)
-        selection = target.id
-    }
+    func addBudget() { selection = draft.addBudget() }
 
     func removeSelected() {
-        guard let index = selectedIndex else { return }
-        draft.targets.remove(at: index)
-        selection = draft.targets.indices.contains(index)
-            ? draft.targets[index].id
-            : draft.targets.last?.id
+        guard let selection else { return }
+        self.selection = draft.remove(selection)
     }
 
-    /// Swapping a recipe keeps whatever dimension values still apply, so switching between
-    /// two Lambda-shaped recipes does not make the user retype the function name.
     func changeRecipe(at index: Int, to recipe: RecipeID) {
-        guard draft.targets.indices.contains(index),
-              let existing = draft.targets[index].metricGroup else { return }
-        let carried = existing.dimensions.filter { recipe.dimensionKeys.contains($0.key) }
-        draft.targets[index].kind = .metricGroup(recipe.group(dimensions: carried))
-        if let forced = recipe.forcedRegion { draft.targets[index].region = forced }
+        guard draft.targets.indices.contains(index) else { return }
+        draft.changeRecipe(draft.targets[index].id, to: recipe)
     }
 
     func apply() {
