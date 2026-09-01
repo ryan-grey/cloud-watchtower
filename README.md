@@ -46,8 +46,33 @@ dist/Watchtower.app/Contents/MacOS/Watchtower --selftest --profile default
 `--render` writes at 2x by default (`--scale 1` for 1x); `scripts/optimise-png.py` converts the
 result to an indexed PNG, which is how the screenshot on ryangrey.dev got from 193 KB to 77 KB.
 
-Other entry points: `--preview` (panel in a normal window, light and dark side by side) and
-`--render <path.png>` (draw the panel straight to a PNG, no screen involved).
+Other entry points: `--preview` (panel in a normal window, light and dark side by side),
+`--render <path.png>` (draw the panel straight to a PNG, no screen involved), and
+`--login-item status|register|unregister`.
+
+### Install it somewhere permanent
+
+`dist/` is a build output — `scripts/make-app.sh` deletes it on every build — so it is the
+wrong home for something macOS is meant to launch every morning. Copy the bundle out before
+turning on "Launch at login":
+
+```sh
+ditto --norsrc --noextattr --noacl dist/Watchtower.app ~/Applications/Watchtower.app
+codesign --force --sign - --timestamp=none ~/Applications/Watchtower.app
+~/Applications/Watchtower.app/Contents/MacOS/Watchtower --login-item register
+```
+
+`ditto` rather than `cp -R`: a plain copy carries Finder metadata that makes the re-sign fail
+with "resource fork, Finder information, or similar detritus not allowed".
+
+**Why this has its own command.** A login item is a path plus a promise to launch it every
+morning, and nothing checks that the path still exists. On 2026-08-31 the registration pointed
+at a build that had been run once out of a scratch directory; the directory was later swept,
+and from then on every login tried to launch a bundle that was not there. System Settings
+still listed the item, still showed it enabled, and the app was simply never running — the
+failure is completely silent, which is why `--login-item status` prints the resolved bundle
+path rather than just the status. `LaunchAtLogin` now refuses to register at all from `/tmp`,
+`/var/folders`, `dirs_cleaner` or a `DerivedData` path, and says so instead.
 
 ---
 
