@@ -28,6 +28,13 @@ The settings window prices the configuration while you build it: **"3 billed met
 polls/mo = $0.09/mo"**. That is the product thesis made interactive rather than asserted in a
 table, and it is what stops a generic metric model quietly becoming expensive.
 
+![The settings window, showing eight targets across two profiles and two regions](docs/settings.png)
+
+That shot is `--render-settings` run against `--write-demo-config`, not against a real account:
+account `000000000000`, profiles `watchtower` and `staging`, and metric names that exist
+nowhere. A screenshot of the real settings window would publish exactly the pair of values this
+repo declines to commit.
+
 An install configured with the older scalar keys (`accountId`, `distributionId`, `alarmName`,
 `budgetName`, `profileName`, `region`) migrates automatically on first launch into equivalent
 targets. The old keys are **read, never deleted**, so an earlier build still finds its
