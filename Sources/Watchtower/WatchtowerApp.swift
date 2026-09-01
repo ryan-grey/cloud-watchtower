@@ -16,6 +16,19 @@ struct WatchtowerApp: App {
     init() {
         let arguments = CommandLine.arguments
 
+        // Login-item management from the terminal. The panel's toggle is the normal way in,
+        // but a login item that has gone wrong is exactly the case where the app is not
+        // running and so the toggle cannot be reached — which is how a stale registration
+        // pointing at a deleted directory survived two reboots unnoticed.
+        //
+        // `status` also prints where the registration would point, because the failure this
+        // exists for is a login item that looks perfectly healthy in System Settings and
+        // names a path that is no longer there.
+        if let index = arguments.firstIndex(of: "--login-item"),
+           arguments.indices.contains(index + 1) {
+            LoginItemCommand.runAndExit(arguments[index + 1])
+        }
+
         // Terminal entry point, checked before any window exists.
         if arguments.contains("--selftest") {
             let profile = arguments.firstIndex(of: "--profile")
