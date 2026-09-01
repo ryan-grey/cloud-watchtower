@@ -10,7 +10,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${CONFIG:-release}"
 APP="$ROOT/dist/Watchtower.app"
 BUNDLE_ID="dev.ryangrey.watchtower"
-VERSION="1.0.0"
+# Single source of truth, read by release.sh too. A version that lives in two
+# places is a version that will eventually disagree with itself.
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
 
 echo "==> Building ($CONFIG)"
 cd "$ROOT"
