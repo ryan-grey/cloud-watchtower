@@ -37,11 +37,27 @@ enum Fmt {
 }
 
 extension Health {
-    var tint: Color {
+    /// Health maps onto a Primer role, so the glyph, the Label pill and any flash all draw
+    /// from one decision rather than three hand-picked colours.
+    var role: PrimerRole {
         switch self {
-        case .ok:      return .green
-        case .warning: return .orange
-        case .unknown: return .secondary
+        case .ok:      return .success
+        case .warning: return .attention
+        case .unknown: return .neutral
         }
     }
+
+    var tint: Color { role.fg }
+
+    /// Short enough for a Primer Label. The full sentence goes underneath the header.
+    var labelText: String {
+        switch self {
+        case .ok:      return "All clear"
+        case .warning: return "Attention"
+        case .unknown: return "Unknown"
+        }
+    }
+
+    var isOK: Bool { if case .ok = self { return true }; return false }
+    var isWarning: Bool { if case .warning = self { return true }; return false }
 }

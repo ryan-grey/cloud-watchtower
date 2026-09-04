@@ -1,5 +1,11 @@
 import SwiftUI
 
+/// The panel, laid out in GitHub's Primer design system.
+///
+/// Each section is a Primer `Box` — a bordered card with a `canvas.subtle` header — so the
+/// panel reads as a stack of GitHub cards rather than a run of dividers. Colour is never
+/// decorative here: it always carries a Primer role, and a degraded or failed reading is a
+/// `flash` rather than a differently-tinted number.
 struct PanelView: View {
     @EnvironmentObject var state: AppState
 
@@ -8,105 +14,116 @@ struct PanelView: View {
     private var tick: Date { state.now }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             header
-            Divider()
             alarmSection
-            Divider()
             cloudFrontSection
-            Divider()
             budgetSection
-            Divider()
             costSection
-            Divider()
+            PrimerRule()
             footer
         }
-        .padding(14)
-        .frame(width: 330)
+        .padding(12)
+        .frame(width: 348)
+        .background(Primer.canvasDefault)
         .onAppear { state.panelOpened() }
     }
 
     // MARK: Header
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 9) {
-            Image(systemName: state.health.systemImage)
-                .font(.system(size: 15))
-                .foregroundStyle(state.health.tint)
-            VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .center, spacing: 7) {
+                Image(systemName: state.health.systemImage)
+                    .font(.system(size: 13))
+                    .foregroundStyle(state.health.role.fg)
                 Text("ryangrey.dev")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Primer.title)
+                    .foregroundStyle(Primer.fgDefault)
+                PrimerLabel(text: state.health.labelText,
+                            role: state.health.role,
+                            filled: state.health.isWarning)
+                Spacer(minLength: 4)
+                Button {
+                    state.refreshAllNow()
+                } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(PrimerInvisibleButtonStyle())
+                .help("Refresh now")
+            }
+
+            if !state.health.isOK {
                 Text(state.health.summary)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .font(Primer.small)
+                    .foregroundStyle(Primer.fgMuted)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
-            Button {
-                state.refreshAllNow()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .help("Refresh now")
         }
     }
 
     // MARK: Alarm
 
     private var alarmSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "Alarm", trailing: Fmt.relative(state.alarm.lastSuccess, asOf: tick))
+        PrimerBox("Alarm",
+                  icon: "bell",
+                  trailing: Fmt.relative(state.alarm.lastSuccess, asOf: tick)) {
             if let value = state.alarm.value {
                 HStack(spacing: 7) {
-                    Circle()
-                        .fill(alarmColor(value.state))
-                        .frame(width: 8, height: 8)
-                    Text(value.state)
-                        .font(.system(size: 12, weight: .medium))
-                    Spacer()
+                    PrimerLabel(text: value.state,
+                                role: alarmRole(value.state),
+                                filled: value.state == "ALARM",
+                                icon: alarmIcon(value.state))
+                    Spacer(minLength: 6)
                     if let updated = value.stateUpdated {
                         Text("since \(Fmt.relative(updated, asOf: tick))")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+                            .font(Primer.caption)
+                            .foregroundStyle(Primer.fgMuted)
                     }
                 }
                 Text(value.name)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .font(Primer.mono(10))
+                    .foregroundStyle(Primer.fgSubtle)
+                    .lineLimit(1)
             }
             if state.alarm.isFailing, let message = state.alarm.errorText {
                 FailureNote(message: message, lastSuccess: state.alarm.lastSuccess)
             } else if state.alarm.value == nil {
-                Text("Waiting for first refresh…")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                WaitingNote()
             }
         }
     }
 
-    private func alarmColor(_ state: String) -> Color {
+    private func alarmRole(_ state: String) -> PrimerRole {
         switch state {
-        case "OK": return .green
-        case "ALARM": return .red
-        default: return .orange
+        case "OK":    return .success
+        case "ALARM": return .danger
+        default:      return .attention
+        }
+    }
+
+    private func alarmIcon(_ state: String) -> String {
+        switch state {
+        case "OK":    return "checkmark"
+        case "ALARM": return "exclamationmark.triangle.fill"
+        default:      return "questionmark"
         }
     }
 
     // MARK: CloudFront
 
     private var cloudFrontSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(title: "CloudFront",
-                          trailing: Fmt.relative(state.metrics.lastSuccess, asOf: tick))
+        PrimerBox("CloudFront",
+                  icon: "chart.bar",
+                  trailing: Fmt.relative(state.metrics.lastSuccess, asOf: tick)) {
             if let value = state.metrics.value {
                 MetricGrid(snapshot: value)
             }
             if state.metrics.isFailing, let message = state.metrics.errorText {
                 FailureNote(message: message, lastSuccess: state.metrics.lastSuccess)
             } else if state.metrics.value == nil {
-                Text("Waiting for first refresh…")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                WaitingNote()
             }
         }
     }
@@ -114,22 +131,21 @@ struct PanelView: View {
     // MARK: Budget
 
     private var budgetSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "Month to date",
-                          trailing: Fmt.relative(state.budget.lastSuccess, asOf: tick))
+        PrimerBox("Month to date",
+                  icon: "creditcard",
+                  trailing: Fmt.relative(state.budget.lastSuccess, asOf: tick)) {
             if let value = state.budget.value {
                 BudgetBar(snapshot: value)
                 if let updated = value.lastUpdated {
                     Text("AWS recalculated \(Fmt.relative(updated, asOf: tick))")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                        .font(Primer.caption)
+                        .foregroundStyle(Primer.fgSubtle)
                 }
             }
             if state.budget.isFailing, let message = state.budget.errorText {
                 FailureNote(message: message, lastSuccess: state.budget.lastSuccess)
             } else if state.budget.value == nil {
-                Text("Waiting for first refresh…")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                WaitingNote()
             }
         }
     }
@@ -137,40 +153,44 @@ struct PanelView: View {
     // MARK: Cost Explorer (manual, billed)
 
     private var costSection: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            SectionHeader(title: "Spend breakdown",
-                          trailing: state.cost.lastSuccess == nil
-                            ? nil : "cached \(Fmt.relative(state.cost.lastSuccess, asOf: tick))")
+        PrimerBox("Spend breakdown",
+                  icon: "list.bullet.rectangle",
+                  trailing: state.cost.lastSuccess == nil
+                    ? nil : "cached \(Fmt.relative(state.cost.lastSuccess, asOf: tick))") {
 
             if let value = state.cost.value {
                 if value.looksUnpopulated {
                     // The trap this app exists to avoid: CE returns structurally valid,
                     // all-zero data while backfilling. Showing "$0.00" here would be a lie.
-                    Label("Cost Explorer has data for only \(value.populatedDays) of \(value.totalDays) days — still backfilling. Not a $0 month.",
-                          systemImage: "clock.badge.exclamationmark")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
+                    PrimerFlash(role: .attention, icon: "clock.badge.exclamationmark") {
+                        Text("Cost Explorer has data for only \(value.populatedDays) of \(value.totalDays) days — still backfilling.")
+                            .font(Primer.small)
+                            .foregroundStyle(Primer.fgDefault)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("This is not a $0 month.")
+                            .font(Primer.caption)
+                            .foregroundStyle(Primer.fgMuted)
+                    }
                 } else if value.services.isEmpty {
                     Text("No service-level costs returned for \(value.periodStart) → \(value.periodEnd).")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .font(Primer.small)
+                        .foregroundStyle(Primer.fgMuted)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    ForEach(value.services.prefix(5), id: \.name) { service in
-                        HStack {
-                            Text(service.name)
-                                .font(.system(size: 11)).lineLimit(1)
-                            Spacer()
-                            Text(Fmt.money(service.amount, places: 4))
-                                .font(.system(size: 11)).monospacedDigit()
-                                .foregroundStyle(.secondary)
+                    VStack(spacing: 0) {
+                        ForEach(Array(value.services.prefix(5)), id: \.name) { service in
+                            costRow(service.name,
+                                    Fmt.money(service.amount, places: 4),
+                                    emphasised: false)
+                            PrimerRule()
                         }
+                        costRow("Total", Fmt.money(value.total, places: 4), emphasised: true)
                     }
-                    HStack {
-                        Text("Total").font(.system(size: 11, weight: .medium))
-                        Spacer()
-                        Text(Fmt.money(value.total, places: 4))
-                            .font(.system(size: 11, weight: .medium)).monospacedDigit()
-                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Primer.radius, style: .continuous)
+                            .strokeBorder(Primer.borderDefault, lineWidth: Primer.borderWidth)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: Primer.radius, style: .continuous))
                 }
             }
 
@@ -178,92 +198,117 @@ struct PanelView: View {
                 FailureNote(message: message, lastSuccess: state.cost.lastSuccess)
             }
 
-            Button {
-                state.fetchCostBreakdown()
-            } label: {
-                HStack(spacing: 5) {
-                    if state.cost.isRefreshing {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "dollarsign.magnifyingglass")
+            HStack(spacing: 7) {
+                Button {
+                    state.fetchCostBreakdown()
+                } label: {
+                    HStack(spacing: 5) {
+                        if state.cost.isRefreshing {
+                            ProgressView().controlSize(.small).scaleEffect(0.7)
+                                .frame(width: 11, height: 11)
+                        } else {
+                            Image(systemName: "dollarsign.magnifyingglass")
+                                .font(.system(size: 10))
+                        }
+                        Text(state.cost.value == nil ? "Break down spend" : "Refresh breakdown")
                     }
-                    Text(state.cost.value == nil ? "Break down spend" : "Refresh breakdown")
-                    Text("· $0.01").foregroundStyle(.secondary)
                 }
-                .font(.system(size: 11))
+                .buttonStyle(PrimerButtonStyle())
+                .disabled(state.cost.isRefreshing)
+                .help("Cost Explorer bills about $0.01 per request. This never runs on a timer.")
+
+                PrimerCounter(text: "$0.01")
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.borderless)
-            .disabled(state.cost.isRefreshing)
-            .help("Cost Explorer bills about $0.01 per request. This never runs on a timer.")
 
             if state.costCacheIsFresh {
                 Text("Cached result is under 24h old — no need to pay again.")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .font(Primer.caption)
+                    .foregroundStyle(Primer.fgSubtle)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func costRow(_ name: String, _ amount: String, emphasised: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(name)
+                .font(emphasised ? Primer.text(11, .semibold) : Primer.small)
+                .foregroundStyle(Primer.fgDefault)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(amount)
+                .font(Primer.mono(11, emphasised ? .semibold : .regular))
+                .foregroundStyle(emphasised ? Primer.fgDefault : Primer.fgMuted)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(emphasised ? Primer.canvasSubtle : Primer.canvasDefault)
     }
 
     // MARK: Footer
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Image(systemName: state.credentialError == nil ? "key" : "key.slash")
-                    .font(.system(size: 10))
-                    .foregroundStyle(state.credentialError == nil ? Color.secondary : Color.orange)
-                Text(state.credentialSummary)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer()
-                Text("\(state.config.region)")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
-            }
-            if let credentialError = state.credentialError {
-                Text(credentialError)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
+            PrimerRow(label: state.credentialSummary) {
+                Text(state.config.region)
+                    .font(Primer.mono(10))
+                    .foregroundStyle(Primer.fgSubtle)
             }
 
-            HStack {
-                Text("Measured API spend")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-                Spacer()
-                Text(Fmt.money(state.measuredSpend, places: 4))
-                    .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
+            if let credentialError = state.credentialError {
+                PrimerFlash(role: .attention, icon: "key.slash") {
+                    Text(credentialError)
+                        .font(Primer.caption)
+                        .foregroundStyle(Primer.fgDefault)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+
+            PrimerRow(label: "Measured API spend") {
+                Text(Fmt.money(state.measuredSpend, places: 4))
+                    .font(Primer.mono(10))
+                    .foregroundStyle(Primer.fgDefault)
+            }
+
             if let since = state.meterSince {
                 Text("since \(Fmt.relative(since, asOf: tick)) · "
                      + state.callCounts.sorted { $0.key < $1.key }
                         .map { "\($0.key) ×\($0.value)" }.joined(separator: ", "))
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                    .font(Primer.text(9))
+                    .foregroundStyle(Primer.fgSubtle)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if state.isAsleep {
-                Label("Polling suspended (machine asleep)", systemImage: "moon.zzz")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-            }
-
-            Toggle(isOn: Binding(get: { state.launchAtLogin },
-                                 set: { state.setLaunchAtLogin($0) })) {
-                Text("Launch at login").font(.system(size: 11))
-            }
-            .toggleStyle(.checkbox)
-            .disabled(!LaunchAtLogin.isAvailable)
-            if let error = state.launchAtLoginError {
-                Text(error).font(.system(size: 10)).foregroundStyle(.orange)
+                PrimerLabel(text: "Polling suspended — machine asleep",
+                            role: .neutral,
+                            icon: "moon.zzz")
             }
 
             HStack {
-                Spacer()
+                Toggle(isOn: Binding(get: { state.launchAtLogin },
+                                     set: { state.setLaunchAtLogin($0) })) {
+                    Text("Launch at login")
+                        .font(Primer.small)
+                        .foregroundStyle(Primer.fgDefault)
+                }
+                .toggleStyle(.checkbox)
+                .disabled(!LaunchAtLogin.isAvailable)
+
+                Spacer(minLength: 8)
+
                 Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 11))
+                    .buttonStyle(PrimerInvisibleButtonStyle(role: .danger))
+            }
+
+            if let error = state.launchAtLoginError {
+                Text(error)
+                    .font(Primer.caption)
+                    .foregroundStyle(Primer.attentionFg)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
