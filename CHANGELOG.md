@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.1.0 — 2026-09-04
+
+**Changed: the panel is redesigned on Primer.**
+
+The panel was styled ad hoc — sizes and colours picked per view, `.green` and
+`.orange` standing in for state, sections separated by bare dividers. It read as
+a stack of rows rather than an interface, and nothing stopped two views that
+meant the same thing from being drawn differently.
+
+`Panel/Primer.swift` ports GitHub's Primer to SwiftUI: tokens taken from
+`primer/primitives` rather than eyeballed, plus the components the panel needs —
+Box, Label, Counter, btn, btn-invisible, flash, and the rules used to build
+tables. No dependency is added; it is one file of about 350 lines.
+
+- **Colour always carries a role.** `PrimerRole` selects foreground, emphasis
+  and subtle background together, so no view hand-mixes three colours and no
+  state can be styled inconsistently with another. Health maps onto a role, not
+  a tint, which is why the header glyph and its Label pill can never disagree.
+- **Every failure is a flash** — a tinted, bordered callout — instead of a line
+  of coloured text. The mistake this app exists to prevent is reading a stale
+  or failed value as a real one, so a degraded reading is visually louder than
+  a healthy one, not merely a different hue.
+- **Dynamic `NSColor`, not `@Environment(\.colorScheme)`.** `--preview` and
+  `--render` pin a light pane and a dark pane to their own `NSAppearance` in
+  one window; a dynamic provider resolves per view, which is what makes the
+  two-up screenshot possible.
+- Two places deliberately exceed Primer: the budget bar still handles more than
+  100% (ProgressBar has no state for it) and keeps the danger flash naming the
+  overage, and the type scale is Primer's 12/14/16/20 dropped two points,
+  because a menu-bar popover is denser than a page.
+
+**Added**
+- `LICENSE` — the repo is MIT.
+
+**Docs**
+- All three README renders (`docs/panel.png`, `panel-alarm.png`,
+  `panel-degraded.png`) re-rendered from the new panel on live data.
+
 ## 1.0.1 — 2026-09-01
 
 **Fixed: the app silently stopped launching at login.**
