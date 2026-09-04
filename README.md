@@ -11,6 +11,9 @@ SDK. Runs locally against `~/.aws`.
 The menu-bar glyph encodes state: `cloud` when everything is fine, a warning triangle when
 the alarm is firing or spend is over 80% of budget, `cloud.slash` when the app cannot tell.
 
+The panel is drawn in [Primer](https://primer.style), GitHub's design system — see
+[Interface](#interface) below.
+
 ---
 
 ## Quick start
@@ -243,6 +246,31 @@ This is the property the app is built around, so it is worth being precise:
 *Above: CloudWatch unreachable, Budgets still fine. Cached values are retained, both failures
 are named, and each card says how old its last good data is.*
 
+### Interface
+
+The panel is built on [Primer](https://primer.style), GitHub's design system, ported to
+SwiftUI in [`Sources/Watchtower/Panel/Primer.swift`](Sources/Watchtower/Panel/Primer.swift).
+No dependency is added — the file is ~350 lines of tokens and components.
+
+- **Real Primer values**, taken from `primer/primitives`, not eyeballed. Every colour is one
+  token with a light and a dark value (`canvas.default` `#ffffff` / `#0d1117`, `fg.muted`
+  `#59636e` / `#9198a1`, and so on).
+- **Dynamic `NSColor`, not `@Environment(\.colorScheme)`.** `--preview` and `--render` put a
+  light pane and a dark pane in one window, each pinned to its own `NSAppearance`; an
+  environment-driven scheme cannot serve both, but a dynamic provider resolves per view.
+- **Primer components:** `Box` for every section (bordered card, `canvas.subtle` header),
+  `Label` pills for alarm and health state, `Counter` for the $0.01 price tag, `btn` and
+  `btn-invisible` for actions, `flash` for every failure, and a bordered table for the
+  metric grid and the cost rows.
+- **Colour always carries a role.** A `PrimerRole` (`success`/`attention`/`danger`/…) picks
+  the foreground, emphasis and subtle background together, so no view hand-mixes three
+  colours and no state can be styled inconsistently with another.
+- **Type scale** is Primer's 12/14/16/20 dropped two points throughout, because a menu-bar
+  popover is denser than a page. Figures are monospaced so columns compare.
+
+The one place Primer is deliberately exceeded: the budget bar handles `fraction > 1`, which
+Primer's `ProgressBar` has no state for. See below.
+
 ### The Cost Explorer backfill trap
 
 Cost Explorer returns **structurally valid, all-zero data while it is still backfilling**. A
@@ -351,3 +379,9 @@ browser asks for it on every visit.
 Bot scanning makes up the rest (`/wp-login.php` → 403, and so on), which is unavoidable
 background noise. The favicon is not. CloudFront access logging is disabled on the
 distribution, so a per-URI breakdown is not available without enabling it.
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 Ryan Grey.
