@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.2.0 — 2026-09-06
+
+**Added: the whole account's bill, polled every 15 minutes.**
+
+Until now the only per-service spend figure came from Cost Explorer, behind a
+manual button, because Cost Explorer costs $0.01 a request and putting that on a
+timer would cost more than the budget it watches. The consequence was that the
+panel could not answer the question people actually open it for: what is this
+month going to cost, and which service is responsible.
+
+The new "Estimated bill" card reads CloudWatch's `AWS/Billing` namespace, which
+is a different trade: approximate and a few hours stale, but billed per metric
+rather than per request, so a 900 s poll costs about $0.60/month rather than $29.
+
+- **Every service, not a filtered set.** One metric per service AWS is charging
+  for, plus the account total, in a single `GetMetricData` call. Services at
+  $0.00 collapse into a count rather than disappearing — "18 services at $0.00"
+  answers "is anything else running", and hiding them is how a newly expensive
+  service goes unnoticed for a week.
+- **A month-end projection, labelled as Watchtower's arithmetic rather than
+  AWS's.** `month-to-date + (daily rate × days remaining)`, where the rate is the
+  **median of the per-interval burn rates**. A one-off charge belongs in the
+  month-to-date total but says nothing about the days remaining, and any average
+  amortises it into a recurring cost: five days into a month, a $17 domain
+  transfer projects $101.86 by endpoint difference and $17.00 by median. A
+  trailing window alone does not fix this — early in the month the window is
+  longer than the data, so the spike is inside it either way. Below five
+  datapoints it declines to project rather than extrapolate.
+- **`Maximum`, not `Average`.** `EstimatedCharges` is a cumulative gauge that
+  resets at the billing boundary, so the largest value in a bucket is the state
+  at the end of it. Averaging smears the running total backwards and
+  under-reports every figure on screen.
+- **Three empty states, one zero.** Billing alerts never enabled, enabled but
+  not yet publishing, and a genuine $0.00 are distinguished; only the last draws
+  a zero. This is the same rule the Cost Explorer backfill trap already follows.
+- **The publish time is shown next to the fetch time**, because they are hours
+  apart and conflating them is how a 15-minute poll gets mistaken for
+  15-minute-fresh data.
+- `billingIntervalSeconds` is exposed in `defaults` (floored at 300 s) — the one
+  interval whose cost scales with the account rather than with the app.
+- Adds `cloudwatch:ListMetrics` to the role policy, and requires **Receive
+  CloudWatch billing alerts** to be enabled in Billing preferences.
+
 ## 1.1.0 — 2026-09-04
 
 **Changed: the panel is redesigned on Primer.**

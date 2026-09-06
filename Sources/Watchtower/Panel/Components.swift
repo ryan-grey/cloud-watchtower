@@ -88,6 +88,115 @@ struct BudgetBar: View {
     }
 }
 
+/// Month-to-date estimated charges for the whole account, with a month-end projection.
+///
+/// The headline is what AWS has already accrued; the projection underneath is Watchtower's
+/// arithmetic, not AWS's, and is labelled that way. Services that cost nothing are collapsed
+/// rather than dropped: "18 services at $0.00" is a real answer to "is anything else running",
+/// and hiding them entirely is how a newly expensive service goes unnoticed for a week.
+struct BillingTable: View {
+    let snapshot: BillingSnapshot
+    let now: Date
+    let isExpanded: Bool
+    let toggleExpanded: () -> Void
+
+    private var charging: [BillingCharge] { snapshot.services.filter { $0.amount > 0 } }
+    private var idle: [BillingCharge] { snapshot.services.filter { $0.amount <= 0 } }
+    private var visible: [BillingCharge] { isExpanded ? snapshot.services : charging }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            headline
+
+            if !visible.isEmpty || snapshot.unattributed > 0 {
+                VStack(spacing: 0) {
+                    ForEach(visible, id: \.service) { charge in
+                        row(charge.displayName, Fmt.moneyAdaptive(charge.amount))
+                        PrimerRule()
+                    }
+                    if snapshot.unattributed > 0 {
+                        row("Not broken out", Fmt.moneyAdaptive(snapshot.unattributed))
+                        PrimerRule()
+                    }
+                    row("Total", Fmt.moneyAdaptive(snapshot.total), emphasised: true)
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: Primer.radius, style: .continuous)
+                        .strokeBorder(Primer.borderDefault, lineWidth: Primer.borderWidth)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: Primer.radius, style: .continuous))
+            }
+
+            if !idle.isEmpty {
+                Button(action: toggleExpanded) {
+                    HStack(spacing: 4) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                        // "more" only reads correctly when something is listed above it.
+                        // With nothing charging, the whole account is the $0.00 list.
+                        Text(isExpanded
+                             ? "Hide \(idle.count) services at $0.00"
+                             : charging.isEmpty
+                               ? "\(idle.count) services, all at $0.00"
+                               : "\(idle.count) more services at $0.00")
+                    }
+                }
+                .buttonStyle(PrimerInvisibleButtonStyle())
+            }
+        }
+    }
+
+    private var headline: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(Fmt.moneyAdaptive(snapshot.total))
+                    .font(Primer.text(18, .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(Primer.fgDefault)
+                Text("so far")
+                    .font(Primer.small)
+                    .foregroundStyle(Primer.fgMuted)
+                Spacer(minLength: 6)
+                if let projected = snapshot.projectedMonthEnd(asOf: now) {
+                    PrimerLabel(text: "≈\(Fmt.moneyAdaptive(projected)) by \(Fmt.monthEndDay(from: snapshot.periodStart))",
+                                role: .neutral)
+                }
+            }
+
+            if let rate = snapshot.dailyRate, let window = snapshot.rateWindowDays {
+                Text("Projected from a typical \(Fmt.moneyAdaptive(rate))/day across \(Fmt.days(window)), "
+                     + "with \(Fmt.days(snapshot.daysRemaining(asOf: now))) to go.")
+                    .font(Primer.caption)
+                    .foregroundStyle(Primer.fgSubtle)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                // Never fake a forecast from a single datapoint. AWS publishes every few
+                // hours, so this clears itself within a day of billing alerts going on.
+                Text("Not enough billing history yet to project a month-end total.")
+                    .font(Primer.caption)
+                    .foregroundStyle(Primer.fgSubtle)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func row(_ name: String, _ amount: String, emphasised: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            Text(name)
+                .font(emphasised ? Primer.text(11, .semibold) : Primer.small)
+                .foregroundStyle(Primer.fgDefault)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(amount)
+                .font(Primer.mono(11, emphasised ? .semibold : .regular))
+                .foregroundStyle(emphasised ? Primer.fgDefault : Primer.fgMuted)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(emphasised ? Primer.canvasSubtle : Primer.canvasDefault)
+    }
+}
+
 /// The 1h / 24h metric grid, laid out as a Primer table: a `canvas.subtle` head row, hairline
 /// rules between rows, and right-aligned monospaced figures so the columns actually compare.
 struct MetricGrid: View {

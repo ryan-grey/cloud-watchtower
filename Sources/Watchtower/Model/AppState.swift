@@ -17,6 +17,11 @@ final class AppState: ObservableObject {
     static let metricsIntervalIdle: TimeInterval = 900
     /// A panel reopened within a minute reuses what is on screen rather than paying again.
     static let metricsOpenThrottle: TimeInterval = 60
+    /// Billed, but barely: ~21 metrics per call at $0.01 per 1,000 is about two hundredths of
+    /// a cent a poll. AWS itself only republishes billing data every few hours, so this is far
+    /// faster than the underlying source changes — it buys promptness after a refresh, not
+    /// resolution. Overridable via `billingIntervalSeconds`. See README "Why these intervals".
+    static let billingIntervalDefault: TimeInterval = 900
     /// How long after the panel closes we keep treating the app as "in use".
     static let activeWindow: TimeInterval = 600
 
@@ -24,6 +29,11 @@ final class AppState: ObservableObject {
     @Published private(set) var budget = Loaded<BudgetSnapshot>()
     @Published private(set) var metrics = Loaded<MetricsSnapshot>()
     @Published private(set) var cost = Loaded<CostBreakdown>()
+    @Published private(set) var billing = Loaded<BillingSnapshot>()
+    /// True once we have confirmed the AWS/Billing namespace is empty, which means billing
+    /// alerts have never been switched on. Kept separate from a failure: there is nothing
+    /// wrong, there is just nothing to read yet.
+    @Published private(set) var billingNotEnabled = false
 
     @Published private(set) var credentialSummary: String = "Not resolved"
     @Published private(set) var credentialError: String?
@@ -32,6 +42,8 @@ final class AppState: ObservableObject {
     @Published private(set) var callCounts: [String: Int] = [:]
     @Published private(set) var meterSince: Date?
     @Published var launchAtLoginError: String?
+    /// Lives here rather than as view `@State` for the same SDK reason `now` does.
+    @Published var expandBillingServices = false
     @Published var config: Configuration
 
     /// Ticks so relative timestamps ("2m ago") stay honest while the panel sits open.
@@ -51,13 +63,19 @@ final class AppState: ObservableObject {
     private var cloudWatch: CloudWatchService
     private var budgets: BudgetsService
     private var costExplorer: CostExplorerService
+    private let billingService: BillingService
 
     private var alarmPoller: Poller?
     private var budgetPoller: Poller?
     private var metricsPoller: Poller?
+    private var billingPoller: Poller?
 
     private var lastPanelOpen: Date?
     private var lastMetricsFetch: Date?
+    /// Discovered once, then reused. New services appear in a billing account rarely, and
+    /// re-listing on every poll would be a wasted round trip; a failed fetch clears it so the
+    /// next poll rediscovers.
+    private var billingServices: [String] = []
 
     var health: Health { Health.evaluate(alarm: alarm, budget: budget) }
 
@@ -72,6 +90,8 @@ final class AppState: ObservableObject {
         self.cloudWatch = CloudWatchService(client: client, config: configuration)
         self.budgets = BudgetsService(client: client, config: configuration)
         self.costExplorer = CostExplorerService(client: client, config: configuration)
+        // No config dependency: AWS/Billing is account-wide and us-east-1 only.
+        self.billingService = BillingService(client: client)
 
         restoreFromDisk()
         if !configuration.isConfigured {
@@ -104,6 +124,8 @@ final class AppState: ObservableObject {
         if let value = cached.budget { budget.value = value; budget.lastSuccess = cached.budgetAt }
         if let value = cached.metrics { metrics.value = value; metrics.lastSuccess = cached.metricsAt }
         if let value = cached.cost { cost.value = value; cost.lastSuccess = cached.costAt }
+        if let value = cached.billing { billing.value = value; billing.lastSuccess = cached.billingAt }
+        billingServices = cached.billingServices ?? []
     }
 
     private func persist() {
@@ -111,7 +133,9 @@ final class AppState: ObservableObject {
             alarm: alarm.value, alarmAt: alarm.lastSuccess,
             budget: budget.value, budgetAt: budget.lastSuccess,
             metrics: metrics.value, metricsAt: metrics.lastSuccess,
-            cost: cost.value, costAt: cost.lastSuccess))
+            cost: cost.value, costAt: cost.lastSuccess,
+            billing: billing.value, billingAt: billing.lastSuccess,
+            billingServices: billingServices.isEmpty ? nil : billingServices))
     }
 
     private func observeSleepWake() {
@@ -129,8 +153,8 @@ final class AppState: ObservableObject {
     private func suspend() {
         isAsleep = true
         ticker?.invalidate(); ticker = nil
-        alarmPoller?.stop(); budgetPoller?.stop(); metricsPoller?.stop()
-        alarmPoller = nil; budgetPoller = nil; metricsPoller = nil
+        alarmPoller?.stop(); budgetPoller?.stop(); metricsPoller?.stop(); billingPoller?.stop()
+        alarmPoller = nil; budgetPoller = nil; metricsPoller = nil; billingPoller = nil
     }
 
     private func resume() {
@@ -155,10 +179,16 @@ final class AppState: ObservableObject {
         }) { [weak self] in
             await self?.refreshMetrics() ?? false
         }
+        let billingPoller = Poller(name: "billing", interval: { [weak self] in
+            self?.config.billingIntervalSeconds ?? Self.billingIntervalDefault
+        }) { [weak self] in
+            await self?.refreshBilling() ?? false
+        }
         self.alarmPoller = alarmPoller
         self.budgetPoller = budgetPoller
         self.metricsPoller = metricsPoller
-        alarmPoller.start(); budgetPoller.start(); metricsPoller.start()
+        self.billingPoller = billingPoller
+        alarmPoller.start(); budgetPoller.start(); metricsPoller.start(); billingPoller.start()
     }
 
     // MARK: - Panel events
@@ -176,6 +206,7 @@ final class AppState: ObservableObject {
         alarmPoller?.refreshNow()
         budgetPoller?.refreshNow()
         metricsPoller?.refreshNow()
+        billingPoller?.refreshNow()
     }
 
     // MARK: - Refreshers (return true on success)
@@ -224,6 +255,49 @@ final class AppState: ObservableObject {
             await refreshMeter()
             persist(); return false
         }
+    }
+
+    @discardableResult
+    private func refreshBilling() async -> Bool {
+        billing.isRefreshing = true
+        do {
+            // The service list is discovered once and reused; ListMetrics is free, so the
+            // only cost of rediscovering is a round trip.
+            if billingServices.isEmpty {
+                switch try await billingService.availability() {
+                case .notEnabled:
+                    // Not a failure. There is no metric to read because the account has never
+                    // been asked to publish one, and saying so is more useful than a $0.00.
+                    billingNotEnabled = true
+                    billing.isRefreshing = false
+                    return true
+                case .enabled(let services):
+                    billingNotEnabled = false
+                    billingServices = services
+                }
+            }
+
+            let snapshot = try await billingService.currentCharges(services: billingServices)
+            billing.succeeded(snapshot)
+            billingNotEnabled = false
+            await refreshMeter()
+            persist(); return true
+        } catch {
+            billing.failed(error)
+            // Force rediscovery next time: a stale service list is a plausible cause of a
+            // failure here, and it is free to rebuild.
+            billingServices = []
+            noteCredentialFailure(error)
+            await refreshMeter()
+            persist(); return false
+        }
+    }
+
+    /// What one billing poll costs, so the panel can state it rather than estimate it.
+    var billingPollPrice: Double {
+        let metrics = billingServices.isEmpty
+            ? 0 : BillingService.billedMetrics(for: billingServices)
+        return Double(metrics) * CallMeter.Price.perGetMetricDataMetric
     }
 
     /// Manual only — this is the call that costs $0.01.

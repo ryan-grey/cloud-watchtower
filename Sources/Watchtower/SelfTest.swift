@@ -109,7 +109,35 @@ enum SelfTest {
             failures += 1
         }
 
-        // 5. Cost Explorer costs ~$0.01 per call, so it runs only when asked for explicitly.
+        // 5. AWS/Billing — ListMetrics is free, GetMetricData is ~$0.0002 for the whole account.
+        let billingService = BillingService(client: client)
+        do {
+            switch try await billingService.availability() {
+            case .notEnabled:
+                print("[warn] AWS/Billing    namespace is empty — enable “Receive CloudWatch"
+                      + " billing alerts” in Billing preferences (us-east-1)")
+            case .enabled(let services):
+                let snapshot = try await billingService.currentCharges(services: services)
+                if !snapshot.hasData {
+                    print("[warn] EstimatedCharges  \(services.count) services published, but no"
+                          + " datapoint yet this month — NOT a $0 month")
+                } else {
+                    print(String(format: "[ ok ] EstimatedCharges $%.4f month to date across %d services",
+                                 snapshot.total, snapshot.services.count))
+                    if let projected = snapshot.projectedMonthEnd() {
+                        print(String(format: "         on course for $%.2f by month end", projected))
+                    } else {
+                        print("         not enough history to project a month-end total")
+                    }
+                }
+            }
+        } catch {
+            print("[FAIL] AWS/Billing    \(error.localizedDescription)"
+                  + hint(error, api: "ListMetrics", config: config))
+            failures += 1
+        }
+
+        // 6. Cost Explorer costs ~$0.01 per call, so it runs only when asked for explicitly.
         //    A self-test that quietly bills you is the exact thing this project is about.
         if includeCost {
             do {
@@ -154,6 +182,8 @@ enum SelfTest {
                  + "\n              ONLY this call while everything else keeps working."
         case "GetCostAndUsage":
             return "\n         fix: statement CostExplorerReadOnlyManualOnly (ce:GetCostAndUsage)"
+        case "ListMetrics":
+            return "\n         fix: statement MetricsReadOnly must include cloudwatch:ListMetrics"
         default:
             return ""
         }

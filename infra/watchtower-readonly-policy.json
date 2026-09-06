@@ -10,7 +10,7 @@
     {
       "Sid": "MetricsReadOnly",
       "Effect": "Allow",
-      "Action": ["cloudwatch:GetMetricData"],
+      "Action": ["cloudwatch:GetMetricData", "cloudwatch:ListMetrics"],
       "Resource": "*"
     },
     {

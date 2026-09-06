@@ -18,6 +18,7 @@ struct PanelView: View {
             header
             alarmSection
             cloudFrontSection
+            billingSection
             budgetSection
             costSection
             PrimerRule()
@@ -128,10 +129,65 @@ struct PanelView: View {
         }
     }
 
+    // MARK: Estimated bill (polled, near-free)
+
+    private var billingSection: some View {
+        PrimerBox("Estimated bill",
+                  icon: "dollarsign.circle",
+                  trailing: Fmt.relative(state.billing.lastSuccess, asOf: tick)) {
+
+            if state.billingNotEnabled {
+                // A setup step, not an error, so it gets attention rather than danger.
+                PrimerFlash(role: .attention, icon: "bell.badge") {
+                    Text("AWS is not publishing billing metrics for this account.")
+                        .font(Primer.small)
+                        .foregroundStyle(Primer.fgDefault)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Turn on “Receive CloudWatch billing alerts” in Billing preferences. "
+                         + "The first datapoint appears within a few hours.")
+                        .font(Primer.caption)
+                        .foregroundStyle(Primer.fgMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if let value = state.billing.value {
+                if value.hasData {
+                    BillingTable(snapshot: value,
+                                 now: tick,
+                                 isExpanded: state.expandBillingServices,
+                                 toggleExpanded: { state.expandBillingServices.toggle() })
+                    if let published = value.publishedAt {
+                        Text("AWS published this \(Fmt.relative(published, asOf: tick)) — it updates every few hours.")
+                            .font(Primer.caption)
+                            .foregroundStyle(Primer.fgSubtle)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    // Structurally valid, entirely empty. The same trap as an unpopulated
+                    // Cost Explorer month, and it gets the same treatment.
+                    PrimerFlash(role: .attention, icon: "clock.badge.exclamationmark") {
+                        Text("Billing metrics are switched on but have not published a datapoint for this month yet.")
+                            .font(Primer.small)
+                            .foregroundStyle(Primer.fgDefault)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("This is not a $0 month.")
+                            .font(Primer.caption)
+                            .foregroundStyle(Primer.fgMuted)
+                    }
+                }
+            }
+
+            if state.billing.isFailing, let message = state.billing.errorText {
+                FailureNote(message: message, lastSuccess: state.billing.lastSuccess)
+            } else if state.billing.value == nil && !state.billingNotEnabled {
+                WaitingNote()
+            }
+        }
+    }
+
     // MARK: Budget
 
     private var budgetSection: some View {
-        PrimerBox("Month to date",
+        PrimerBox("Budget",
                   icon: "creditcard",
                   trailing: Fmt.relative(state.budget.lastSuccess, asOf: tick)) {
             if let value = state.budget.value {
@@ -270,6 +326,17 @@ struct PanelView: View {
                 Text(Fmt.money(state.measuredSpend, places: 4))
                     .font(Primer.mono(10))
                     .foregroundStyle(Primer.fgDefault)
+            }
+
+            if state.billingPollPrice > 0 {
+                // The whole reason the bill poll is allowed on a timer, stated where the
+                // measured total is, so the two can be checked against each other.
+                Text("Bill poll: \(Fmt.money(state.billingPollPrice, places: 5)) every "
+                     + "\(Int(state.config.billingIntervalSeconds / 60))m, about "
+                     + "\(Fmt.money(state.billingPollPrice * 24 * 30 * 3600 / state.config.billingIntervalSeconds, places: 2))/month.")
+                    .font(Primer.text(9))
+                    .foregroundStyle(Primer.fgSubtle)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let since = state.meterSince {

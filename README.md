@@ -1,7 +1,8 @@
 # Cloud Watchtower
 
 A macOS menu-bar monitor for [ryangrey.dev](https://ryangrey.dev): CloudFront traffic and
-error rates, CloudWatch alarm state, and month-to-date AWS spend against a $5 budget.
+error rates, CloudWatch alarm state, and every dollar the AWS account is accruing this month
+— per service, with a month-end projection, against a $5 budget.
 
 Swift + SwiftUI, `MenuBarExtra`, no Dock icon. **No dependencies at all** — not even the AWS
 SDK. Runs locally against `~/.aws`.
@@ -91,14 +92,25 @@ $0.01 per request**, and nothing else Watchtower calls costs anything material.
 |---|---|---|---|---|
 | `DescribeAlarms` | 60 s | 43,200 | free tier | **0.00** |
 | `DescribeBudget` | 600 s | 4,320 | not charged | **0.00** |
-| `GetMetricData` | 900 s idle / 300 s active | ~3,900 × 3 metrics = 11,700 metrics | $0.01 per 1,000 metrics | **0.12** |
+| `ListMetrics` | once per launch | ~1 | not charged | **0.00** |
+| `GetMetricData` (CloudFront) | 900 s idle / 300 s active | ~3,900 × 3 metrics = 11,700 metrics | $0.01 per 1,000 metrics | **0.12** |
+| `GetMetricData` (`AWS/Billing`) | 900 s | 2,880 × 21 metrics = 60,480 metrics | $0.01 per 1,000 metrics | **0.60** |
 | `GetCostAndUsage` | **manual only** | 0 | $0.01 per request | **0.00** |
-| | | | | **$0.12/mo** |
+| | | | | **$0.72/mo** |
 
-`11,700 / 1,000 × $0.01 = $0.117`.
+`72,180 / 1,000 × $0.01 = $0.72`, and that is the 24/7 worst case — polling stops entirely
+while the machine is asleep, so the measured figure is always lower.
+
+The billing poll is the one line here that scales with the account rather than with the app:
+it bills one metric per service AWS is charging for, so 21 in this account and more in a
+larger one. It is the only interval exposed as a setting for that reason:
+
+```sh
+defaults write dev.ryangrey.watchtower billingIntervalSeconds -float 1800   # halves it
+```
 
 Press the "Break down spend" button once a day and you add `30 × $0.01 = $0.30/mo`, for
-**$0.42/mo worst case**. The button is labelled with its own price for exactly this reason.
+**$1.02/mo worst case**. The button is labelled with its own price for exactly this reason.
 
 ### What the obvious design would have cost
 
@@ -126,6 +138,10 @@ on a timer, and metrics batch into one call.
   `GetMetricData` request over a 25-hour window at hourly resolution, and both the 1-hour and
   24-hour figures are computed client-side. Two separate windows would double the billable
   metric count and still not give the request-weighted rate below.
+- **The bill is polled on a timer because it is cheap, not because it is fast.** AWS
+  republishes `AWS/Billing` only every few hours, so a 900 s poll is far faster than the
+  source changes. It buys promptness after a manual refresh, not resolution — and the panel
+  shows AWS's own publish time next to Watchtower's fetch time so the two are never confused.
 - **Backoff and sleep.** Exponential backoff to a 15-minute ceiling on failure, and polling
   stops entirely on `NSWorkspace.willSleepNotification`. A monitoring app that quietly bills
   you while the lid is shut is the exact failure mode this project is about.
@@ -210,7 +226,7 @@ CloudFront, and update Lambda code. A menu-bar app is the longest-lived process 
 machine that would ever hold it — auto-starting at login and running unattended for weeks. The
 compromise scenario shifts from "read three dashboards" to "delete the site", for zero
 functional gain, since the app never needs a single write. Least privilege also buys
-diagnostics: if the app can only call `DescribeAlarms`, `DescribeBudget` and `GetMetricData`,
+diagnostics: if the app can only call `DescribeAlarms`, `DescribeBudget`, `ListMetrics` and `GetMetricData`,
 an `AccessDenied` is immediately meaningful. And it decouples lifecycles — rotating the deploy
 key should not silently break monitoring.
 
@@ -271,6 +287,50 @@ No dependency is added — the file is ~350 lines of tokens and components.
 The one place Primer is deliberately exceeded: the budget bar handles `fraction > 1`, which
 Primer's `ProgressBar` has no state for. See below.
 
+### Two sources for spend, because they answer different questions
+
+Watchtower reads cost twice, from two APIs, on purpose.
+
+| | `AWS/Billing` (CloudWatch) | Cost Explorer |
+|---|---|---|
+| Question | "what is this month going to cost me" | "what exactly did I spend it on" |
+| Price | $0.01 per 1,000 metrics | $0.01 per **request** |
+| Freshness | republished every few hours | lags ~24 h |
+| Knows about credits and refunds | no | yes |
+| In the app | polled every 900 s | a button, cached 24 h |
+
+`EstimatedCharges` is cumulative within the billing month and resets at the boundary, so the
+newest datapoint is month-to-date spend and the gap between two datapoints is the burn in
+between. That is what makes a projection possible at all, and it is why the metric is read
+with `Maximum` rather than `Average`: averaging a running total smears it backwards and
+under-reports every figure on screen.
+
+**The projection is Watchtower's arithmetic, not AWS's,** and it is labelled that way. It is
+`month-to-date + (daily rate × days remaining)`, where the rate is the **median of the
+per-interval burn rates** rather than the endpoint difference divided by elapsed time.
+
+That distinction is the whole feature. A one-off charge — a domain transfer, a support plan —
+is real spend that belongs in the month-to-date total but says nothing about what the
+remaining days will cost, and any average amortises it across the window and forecasts it
+recurring forever. Measured five days into a month, this account's August $17 domain transfer
+projects **$101.86** by endpoint difference and **$17.00** by median: the charge, and nothing
+more. A trailing window does not fix this on its own, which is the trap — early in the month
+the window is longer than the data, so the spike sits inside it either way.
+
+| Series (5 days) | Endpoint difference | Median of intervals |
+|---|---|---|
+| Steady $0.05/day | $1.50 | $1.50 |
+| One-off $17, no burn | $101.86 | **$17.00** |
+| $0.05/day plus a $17 one-off | $103.36 | **$18.50** |
+
+Below five datapoints it declines to project at all rather than extrapolate, and a negative
+running total (credits exceeding charges) suppresses the projection rather than printing a
+confident negative bill.
+
+The namespace only exists once **Receive CloudWatch billing alerts** is ticked in Billing
+preferences, and only ever in `us-east-1`. Watchtower distinguishes all three states: not
+enabled, enabled but not yet publishing, and genuinely $0.00. Only the third draws a zero.
+
 ### The Cost Explorer backfill trap
 
 Cost Explorer returns **structurally valid, all-zero data while it is still backfilling**. A
@@ -294,6 +354,19 @@ Verified by direct observation:
   `aws budgets describe-budget` and `aws cloudwatch describe-alarms` exactly. The 24-hour 4xx
   rate was recomputed from an independent CLI pull: **56.99% CLI vs 56.93% app**, the gap
   being the two-minute difference in window end.
+- **The billing card, cross-checked on the day it shipped (2026-09-06).** An independent CLI
+  pull of `EstimatedCharges` returned one datapoint for September at `$0.0000` across 20
+  services; the app reported the same total, the same service count, and declined to project
+  a month-end figure because one datapoint is zero intervals. The `[warn]` and `[FAIL]` paths
+  were both observed first: an empty namespace before billing alerts were enabled, then
+  `AccessDenied` on `cloudwatch:ListMetrics` until the role policy was updated — the self-test
+  named the exact missing statement in each case.
+- **A real "why is this not showing up" investigation.** 1.78 GB was uploaded to two new S3
+  buckets on 2026-09-05 and no S3 charge ever appeared. Both Cost Explorer and
+  `EstimatedCharges` independently reported `$0.00` for `AmazonS3` against non-zero usage
+  quantity — free-tier coverage, not a missing metric. The dashboard was right; the intuition
+  that "some spend must be missing" was wrong. This is the case the three-way distinction
+  between *not enabled*, *not yet published* and *genuinely zero* exists to settle.
 - **Missing credentials.** With the default `watchtower` profile absent, the app reports
   `Profile "watchtower" not found in ~/.aws (available: default)` and refuses to continue —
   it does not fall back or show zeros.

@@ -11,6 +11,11 @@ struct CachedState: Codable {
     var metricsAt: Date?
     var cost: CostBreakdown?
     var costAt: Date?
+    var billing: BillingSnapshot?
+    var billingAt: Date?
+    /// The AWS/Billing service list, cached so a restart does not have to rediscover it
+    /// before it can show anything.
+    var billingServices: [String]?
 }
 
 enum DiskCache {

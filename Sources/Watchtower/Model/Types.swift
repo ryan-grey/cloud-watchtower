@@ -99,6 +99,82 @@ struct ServiceCost: Equatable, Codable {
     var amount: Double
 }
 
+/// One service's month-to-date estimated charge, as CloudWatch publishes it.
+struct BillingCharge: Equatable, Codable {
+    var service: String
+    var amount: Double
+
+    /// CloudWatch's ServiceName dimension uses billing codes, not the display names Cost
+    /// Explorer returns. Left as-is when unrecognised so a new service still renders.
+    var displayName: String {
+        switch service {
+        case "AmazonS3":            return "S3"
+        case "AmazonEC2":           return "EC2"
+        case "AmazonCloudFront":    return "CloudFront"
+        case "AmazonRoute53":       return "Route 53"
+        case "AmazonDynamoDB":      return "DynamoDB"
+        case "AmazonSES":           return "SES"
+        case "AmazonSNS":           return "SNS"
+        case "AmazonBedrock":       return "Bedrock"
+        case "AmazonCognito":       return "Cognito"
+        case "AmazonApiGateway":    return "API Gateway"
+        case "AmazonCloudWatch":    return "CloudWatch"
+        case "AWSQueueService":     return "SQS"
+        case "AWSDataTransfer":     return "Data transfer"
+        case "AWSLambda":           return "Lambda"
+        case "AWSGlue":             return "Glue"
+        case "AWSEvents":           return "EventBridge"
+        case "AWSCloudFormation":   return "CloudFormation"
+        case "AWSMarketplace":      return "Marketplace"
+        case "CloudFrontPlans":     return "CloudFront plans"
+        case "awskms":              return "KMS"
+        case "ACM":                 return "Certificate Manager"
+        default:                    return service
+        }
+    }
+}
+
+/// Month-to-date estimated charges for the whole account, free from CloudWatch.
+///
+/// `hasData` exists for the same reason `CostBreakdown.populatedDays` does. A brand-new
+/// billing-alert subscription publishes nothing for several hours, and rendering that as
+/// $0.00 would be the exact lie this app was written to avoid.
+struct BillingSnapshot: Equatable, Codable {
+    /// When AWS published the newest datapoint. Not when Watchtower fetched it — these can be
+    /// hours apart, and the panel shows both.
+    var publishedAt: Date?
+    var total: Double
+    var services: [BillingCharge]
+    var currency: String
+    var periodStart: Date
+    /// Recent burn in dollars per day, or nil when there is too little history to divide by.
+    var dailyRate: Double?
+    var rateWindowDays: Double?
+    var hasData: Bool
+
+    /// Services AWS has not broken out, derived rather than assumed. Small negatives are
+    /// rounding between the total and the per-service metrics, so they clamp to zero.
+    var unattributed: Double {
+        max(0, total - services.reduce(0) { $0 + $1.amount })
+    }
+
+    func daysRemaining(asOf now: Date = Date()) -> Double {
+        let calendar = Calendar(identifier: .gregorian)
+        guard let next = calendar.date(byAdding: .month, value: 1, to: periodStart) else { return 0 }
+        return max(0, next.timeIntervalSince(now) / 86_400)
+    }
+
+    /// What the month is on course to cost: what has already been spent, plus the recent
+    /// daily rate carried across the days that are left. Never a whole-month extrapolation of
+    /// the average, which one-off charges make nonsense of.
+    func projectedMonthEnd(asOf now: Date = Date()) -> Double? {
+        // A negative running total means credits currently exceed charges. Projecting forward
+        // from it would print a confident negative bill, which is not a claim worth making.
+        guard hasData, total >= 0, let dailyRate else { return nil }
+        return total + dailyRate * daysRemaining(asOf: now)
+    }
+}
+
 struct CostBreakdown: Equatable, Codable {
     var periodStart: String
     var periodEnd: String

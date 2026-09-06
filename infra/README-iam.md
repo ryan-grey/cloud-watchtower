@@ -47,6 +47,23 @@ Watchtower already defaults to the `watchtower` profile and supports `role_arn` 
 dist/Watchtower.app/Contents/MacOS/Watchtower --selftest --profile watchtower
 ```
 
+## One account setting, outside IAM
+
+The "Estimated bill" card reads CloudWatch's `AWS/Billing` namespace, which **does not exist
+until billing alerts are switched on**. In the AWS console, go to **Billing and Cost
+Management → Billing preferences → Alert preferences**, tick **Receive CloudWatch billing
+alerts**, and save. The first datapoint can take a few hours.
+
+Two things that reliably waste an afternoon:
+
+- The namespace is published to **`us-east-1` only**, no matter where the account's resources
+  actually run. Watchtower hard-codes that region for this one call.
+- The setting lives on the **payer account**. In an organisation, a member account will see an
+  empty namespace no matter what its own preferences say.
+
+Until it is on, the card says so rather than drawing `$0.00`, and `--selftest` reports
+`[warn] AWS/Billing namespace is empty`.
+
 ## Note on `ce:GetCostAndUsage`
 
 It is in the policy because the manual "Break down spend" button needs it. It is NEVER called

@@ -31,6 +31,30 @@ enum Fmt {
         String(format: "$%.\(places)f", value)
     }
 
+    /// Cents are the wrong resolution for an account that spends fractions of one. Sub-dollar
+    /// figures keep four places so a real charge never rounds away to "$0.00" — the reading
+    /// that sends you looking for a bug in the dashboard instead of at your bill.
+    static func moneyAdaptive(_ value: Double) -> String {
+        if value == 0 { return "$0.00" }
+        if abs(value) < 0.01 { return money(value, places: 4) }
+        if abs(value) < 1 { return money(value, places: 3) }
+        return money(value, places: 2)
+    }
+
+    /// "Sep 30" — the day the current billing period closes.
+    static func monthEndDay(from periodStart: Date) -> String {
+        let calendar = Calendar(identifier: .gregorian)
+        guard let next = calendar.date(byAdding: .month, value: 1, to: periodStart),
+              let last = calendar.date(byAdding: .day, value: -1, to: next) else { return "month end" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: last)
+    }
+
+    static func days(_ value: Double) -> String {
+        value < 1.5 ? "1 day" : String(format: "%.0f days", value)
+    }
+
     static func percent(_ fraction: Double) -> String {
         String(format: "%.0f%%", fraction * 100)
     }
