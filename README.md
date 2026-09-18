@@ -34,6 +34,7 @@ defaults write dev.ryangrey.watchtower alarmName      -string "cloudfront-5xx-er
 defaults write dev.ryangrey.watchtower budgetName     -string "my-monthly-budget"
 defaults write dev.ryangrey.watchtower profileName    -string "watchtower"
 defaults write dev.ryangrey.watchtower region         -string "us-east-1"
+defaults write dev.ryangrey.watchtower menuBarCost    -bool true   # optional: spend beside the glyph
 
 open dist/Watchtower.app
 ```
@@ -108,6 +109,10 @@ larger one. It is the only interval exposed as a setting for that reason:
 ```sh
 defaults write dev.ryangrey.watchtower billingIntervalSeconds -float 1800   # halves it
 ```
+
+The optional cost readout in the menu bar adds nothing to this table: it shows the same
+`AWS/Billing` total the panel already polls (or the budget's actual spend when billing alerts
+are off), so turning it on costs zero additional API calls.
 
 Press the "Break down spend" button once a day and you add `30 × $0.01 = $0.30/mo`, for
 **$1.02/mo worst case**. The button is labelled with its own price for exactly this reason.
@@ -283,6 +288,13 @@ No dependency is added — the file is ~350 lines of tokens and components.
   colours and no state can be styled inconsistently with another.
 - **Type scale** is Primer's 12/14/16/20 dropped two points throughout, because a menu-bar
   popover is denser than a page. Figures are monospaced so columns compare.
+- **An optional readout in the menu bar itself.** Tick "Show cost in menu bar" in the panel
+  footer and the status item reads `$4.12 · in 12d 6h` — month-to-date spend and the time
+  until the billing month closes — or, in the "% of budget" style, `31% · in 12d 6h`. The
+  health glyph stays first and unchanged; the text is added after it, never in place of it.
+  When there is no figure to show (billing alerts on but nothing published yet, or no data at
+  all) the text disappears rather than reading `$0.00`, and a failed poll keeps the last value
+  the same way the cards do. Percent falls back to the amount when there is no budget figure.
 
 The one place Primer is deliberately exceeded: the budget bar handles `fraction > 1`, which
 Primer's `ProgressBar` has no state for. See below.
@@ -433,7 +445,8 @@ Not yet verified — see Known gaps:
 ## Known gaps
 
 - Launch-at-login is wired to `SMAppService` but has not been exercised across a reboot.
-- The panel has no settings UI; configuration is `defaults write dev.ryangrey.watchtower …`
+- The panel's only settings are the two footer toggles (launch at login, cost in the menu
+  bar); account configuration is still `defaults write dev.ryangrey.watchtower …`
   (`accountId`, `distributionId`, `alarmName`, `budgetName`, `profileName`, `region`).
 - `--render` needs a fixed 9-second wait for data to arrive rather than observing load state.
 

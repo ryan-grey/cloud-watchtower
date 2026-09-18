@@ -116,6 +116,21 @@ final class AppState: ObservableObject {
         launchAtLogin = LaunchAtLogin.isEnabled
     }
 
+    // MARK: Menu-bar readout — see MenuBarTitle
+    //
+    // `config` is `@Published`, so the status item redraws on the same run-loop turn the
+    // checkbox changes; `save()` is what makes the choice survive a relaunch.
+
+    func setMenuBarCost(_ enabled: Bool) {
+        config.menuBarCost = enabled
+        config.save()
+    }
+
+    func setMenuBarCostStyle(_ style: String) {
+        config.menuBarCostStyle = style
+        config.save()
+    }
+
     // MARK: - Lifecycle
 
     private func restoreFromDisk() {

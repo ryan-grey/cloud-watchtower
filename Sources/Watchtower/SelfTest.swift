@@ -83,8 +83,10 @@ enum SelfTest {
 
         // 3. DescribeBudget — free
         let budgets = BudgetsService(client: client, config: config)
+        var budgetSnapshot: BudgetSnapshot?
         do {
             let budget = try await budgets.describeBudget()
+            budgetSnapshot = budget
             print(String(format: "[ ok ] DescribeBudget %@ = $%.2f of $%.2f (%.0f%%)",
                          budget.name, budget.actual, budget.limit, budget.fraction * 100))
         } catch {
@@ -111,13 +113,17 @@ enum SelfTest {
 
         // 5. AWS/Billing — ListMetrics is free, GetMetricData is ~$0.0002 for the whole account.
         let billingService = BillingService(client: client)
+        var billingSnapshot: BillingSnapshot?
+        var billingNotEnabled = false
         do {
             switch try await billingService.availability() {
             case .notEnabled:
+                billingNotEnabled = true
                 print("[warn] AWS/Billing    namespace is empty — enable “Receive CloudWatch"
                       + " billing alerts” in Billing preferences (us-east-1)")
             case .enabled(let services):
                 let snapshot = try await billingService.currentCharges(services: services)
+                billingSnapshot = snapshot
                 if !snapshot.hasData {
                     print("[warn] EstimatedCharges  \(services.count) services published, but no"
                           + " datapoint yet this month — NOT a $0 month")
@@ -136,6 +142,17 @@ enum SelfTest {
                   + hint(error, api: "ListMetrics", config: config))
             failures += 1
         }
+
+        // 5b. What the status item would read with `menuBarCost` on. Derived from the two
+        //     values above, so it costs nothing extra; "(icon only)" is the honest answer
+        //     when neither feed has a figure.
+        let title = MenuBarTitle.make(billing: billingSnapshot,
+                                      budget: budgetSnapshot,
+                                      billingNotEnabled: billingNotEnabled,
+                                      now: Date(),
+                                      style: config.menuBarCostStyle)
+        print("[info] menu bar title \(title ?? "(icon only)")"
+              + (config.menuBarCost ? "" : "  (menuBarCost is off; the menu bar shows the icon only)"))
 
         // 6. Cost Explorer costs ~$0.01 per call, so it runs only when asked for explicitly.
         //    A self-test that quietly bills you is the exact thing this project is about.

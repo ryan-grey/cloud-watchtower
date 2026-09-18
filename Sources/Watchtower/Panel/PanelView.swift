@@ -377,6 +377,34 @@ struct PanelView: View {
                     .foregroundStyle(Primer.attentionFg)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            // The menu-bar readout. Both controls write straight through AppState so the
+            // status item picks the change up on the same tick, no relaunch.
+            HStack {
+                Toggle(isOn: Binding(get: { state.config.menuBarCost },
+                                     set: { state.setMenuBarCost($0) })) {
+                    Text("Show cost in menu bar")
+                        .font(Primer.small)
+                        .foregroundStyle(Primer.fgDefault)
+                }
+                .toggleStyle(.checkbox)
+                .help("Month-to-date spend and the time to month end, beside the glyph. Adds no API calls.")
+
+                Spacer(minLength: 8)
+
+                if state.config.menuBarCost {
+                    Picker("Style", selection: Binding(get: { state.config.menuBarCostStyle },
+                                                       set: { state.setMenuBarCostStyle($0) })) {
+                        Text("Amount").tag("amount")
+                        Text("% of budget").tag("percent")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help("Percent needs a budget figure; without one the amount is shown instead.")
+                }
+            }
         }
     }
 }

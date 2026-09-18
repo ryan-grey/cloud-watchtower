@@ -21,6 +21,13 @@ import Foundation
 /// ```sh
 /// defaults write dev.ryangrey.watchtower billingIntervalSeconds -float 900
 /// ```
+///
+/// Two more for the menu bar, off by default. The panel footer sets the same keys:
+///
+/// ```sh
+/// defaults write dev.ryangrey.watchtower menuBarCost      -bool true
+/// defaults write dev.ryangrey.watchtower menuBarCostStyle -string "percent"   # or "amount"
+/// ```
 struct Configuration {
     var accountId: String
     var distributionId: String
@@ -33,8 +40,14 @@ struct Configuration {
     /// poll, an organisation with 60 active services bills three times that. Floored at 300 s
     /// so a typo cannot turn a cheap poll into a line item.
     var billingIntervalSeconds: Double
+    /// Show month-to-date spend and the time to month end beside the menu-bar glyph. Off by
+    /// default so an existing install looks exactly as it did.
+    var menuBarCost: Bool
+    /// `amount` (the dollar figure) or `percent` (of budget). Anything else reads as `amount`.
+    var menuBarCostStyle: String
 
     static let minimumBillingInterval: Double = 300
+    static let menuBarCostStyles = ["amount", "percent"]
 
     static let placeholderAccountId = "000000000000"
     static let placeholderDistributionId = "EXAMPLEDISTID0"
@@ -46,7 +59,9 @@ struct Configuration {
         budgetName: "monthly-budget",
         profileName: "watchtower",
         region: "us-east-1",
-        billingIntervalSeconds: 900
+        billingIntervalSeconds: 900,
+        menuBarCost: false,
+        menuBarCostStyle: "amount"
     )
 
     /// False until the placeholders are replaced. Surfaced in the panel and the self-test so
@@ -73,6 +88,11 @@ struct Configuration {
         if interval > 0 {
             config.billingIntervalSeconds = max(Configuration.minimumBillingInterval, interval)
         }
+        // An absent key reads as false, which is the default.
+        config.menuBarCost = d.bool(forKey: "menuBarCost")
+        if let v = d.string(forKey: "menuBarCostStyle"), Configuration.menuBarCostStyles.contains(v) {
+            config.menuBarCostStyle = v
+        }
         return config
     }
 
@@ -85,6 +105,8 @@ struct Configuration {
         d.set(profileName, forKey: "profileName")
         d.set(region, forKey: "region")
         d.set(billingIntervalSeconds, forKey: "billingIntervalSeconds")
+        d.set(menuBarCost, forKey: "menuBarCost")
+        d.set(menuBarCostStyle, forKey: "menuBarCostStyle")
     }
 }
 

@@ -51,6 +51,20 @@ enum Fmt {
         return formatter.string(from: last)
     }
 
+    /// "in 12d 6h" — how long until the billing period closes, for the menu bar. Under a day
+    /// it is hours and minutes, under an hour just minutes, and once the moment has passed,
+    /// "now". Truncated rather than rounded, so the figure never overstates what is left.
+    static func countdown(to end: Date, from now: Date) -> String {
+        let seconds = end.timeIntervalSince(now)
+        if seconds <= 0 { return "now" }
+        if seconds < 60 { return "in <1m" }
+        let minutes = Int(seconds / 60)
+        if minutes < 60 { return "in \(minutes)m" }
+        let hours = minutes / 60
+        if hours < 24 { return "in \(hours)h \(minutes % 60)m" }
+        return "in \(hours / 24)d \(hours % 24)h"
+    }
+
     static func days(_ value: Double) -> String {
         value < 1.5 ? "1 day" : String(format: "%.0f days", value)
     }

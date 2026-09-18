@@ -69,9 +69,28 @@ struct WatchtowerApp: App {
         } label: {
             // SF Symbols are template images, so macOS tints the glyph for light and dark
             // menu bars, and for the highlighted state, with no asset work on our part.
-            Image(systemName: state.health.systemImage)
+            // The optional cost readout goes after the glyph, never in place of it, so
+            // alarm state stays readable at a glance; the text takes the menu-bar colour
+            // on its own.
+            HStack(spacing: 4) {
+                Image(systemName: state.health.systemImage)
+                if let title = menuBarTitle {
+                    Text(title).monospacedDigit()
+                }
+            }
         }
         .menuBarExtraStyle(.window)
+    }
+
+    /// "$4.12 · in 12d 6h" beside the glyph, or nil when the option is off or there is no
+    /// honest figure to show. Reads `state.now`, so the countdown redraws with the ticker.
+    private var menuBarTitle: String? {
+        guard state.config.menuBarCost else { return nil }
+        return MenuBarTitle.make(billing: state.billing.value,
+                                 budget: state.budget.value,
+                                 billingNotEnabled: state.billingNotEnabled,
+                                 now: state.now,
+                                 style: state.config.menuBarCostStyle)
     }
 }
 

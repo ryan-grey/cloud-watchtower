@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.3.0 — 2026-09-17
+
+**Added: the month's spend in the menu bar, opt-in.**
+
+Opening the panel to answer "how much so far" is one click too many when the
+answer is a number that fits beside the glyph. With **Show cost in menu bar**
+ticked in the panel footer, the status item reads `$4.12 · in 12d 6h`:
+month-to-date spend, and how long until the billing month closes. A second
+style, **% of budget**, reads `31% · in 12d 6h` instead. Off by default, so an
+existing install looks exactly as it did.
+
+- **No new API calls.** The figure is the `AWS/Billing` total the "Estimated
+  bill" card already polls every 900 s; with billing alerts off it falls back
+  to the budget's actual spend, which is free and already fetched. The
+  countdown runs off the panel's existing clock.
+- **The glyph stays first and stays the same.** The text is added after it,
+  never in place of it, so alarm and budget state are still readable at a
+  glance.
+- **Icon only rather than a false zero.** Billing alerts enabled but nothing
+  published yet this month, or no data at all, leaves the status item exactly
+  as before. A `$0.00` from missing data is the reading this app exists to
+  avoid, in the menu bar as much as in the panel. A failed poll keeps showing
+  the last value, the same way the cards do.
+- `menuBarCost` and `menuBarCostStyle` (`amount` | `percent`) in `defaults`.
+  The footer checkbox and picker write the same keys, and take effect without
+  a relaunch.
+- `--selftest` prints the line the menu bar would show.
+
 ## 1.2.0 — 2026-09-06
 
 **Added: the whole account's bill, polled every 15 minutes.**
