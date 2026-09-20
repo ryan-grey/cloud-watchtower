@@ -1,5 +1,10 @@
 # Cloud Watchtower
 
+> **Retired 20 September 2026.** Watchtower's AWS monitoring now lives inside
+> [greyStats](https://github.com/ryan-grey) as its `Cloud/` module: the same
+> services, unchanged, behind one menu-bar icon instead of two. This repository
+> is archived and kept for history; `main` at v1.3.0 is the last shipping build.
+
 A macOS menu-bar monitor for [ryangrey.dev](https://ryangrey.dev): CloudFront traffic and
 error rates, CloudWatch alarm state, and every dollar the AWS account is accruing this month
 — per service, with a month-end projection, against a $5 budget.
